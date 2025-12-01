@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   listPaymentResources,
   type AdminCase,
@@ -15,7 +15,7 @@ export function usePaymentResources() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const reload = () => {
+  const reload = useCallback(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
     if (!token) {
       setError('Necesitas iniciar sesión para gestionar pagos.');
@@ -35,7 +35,7 @@ export function usePaymentResources() {
         setError(err?.message || 'No se pudieron cargar los recursos de pagos.');
       })
       .finally(() => setLoading(false));
-  };
+  }, []);
 
   useEffect(() => {
     reload();

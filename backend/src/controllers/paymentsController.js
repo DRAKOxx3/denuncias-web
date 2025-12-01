@@ -15,6 +15,16 @@ export const getCasePayments = async (req, res) => {
     const existingCase = await prisma.case.findUnique({ where: { id: caseId } });
     if (!existingCase) return res.status(404).json({ message: 'Caso no encontrado' });
 
+    if (bankAccountId) {
+      const bankAccount = await prisma.bankAccount.findFirst({ where: { id: Number(bankAccountId), isActive: true } });
+      if (!bankAccount) return res.status(400).json({ message: 'La cuenta bancaria seleccionada no está disponible.' });
+    }
+
+    if (cryptoWalletId) {
+      const wallet = await prisma.cryptoWallet.findFirst({ where: { id: Number(cryptoWalletId), isActive: true } });
+      if (!wallet) return res.status(400).json({ message: 'La wallet seleccionada no está disponible.' });
+    }
+
     const [paymentRequests, payments] = await Promise.all([
       prisma.paymentRequest.findMany({
         where: { caseId },
@@ -105,6 +115,14 @@ export const createPaymentRequest = async (req, res) => {
   try {
     const existingCase = await prisma.case.findUnique({ where: { id: caseId } });
     if (!existingCase) return res.status(404).json({ message: 'Caso no encontrado' });
+
+    if (methodType === 'BANK_TRANSFER' && !bankAccountId) {
+      return res.status(400).json({ message: 'Debes seleccionar una cuenta bancaria activa para transferencias.' });
+    }
+
+    if (methodType === 'CRYPTO' && !cryptoWalletId) {
+      return res.status(400).json({ message: 'Debes seleccionar una wallet activa para pagos cripto.' });
+    }
 
     const created = await prisma.paymentRequest.create({
       data: {
@@ -207,6 +225,24 @@ export const createPayment = async (req, res) => {
       if (!request || request.caseId !== caseId) {
         return res.status(400).json({ message: 'La solicitud de pago no pertenece al caso indicado.' });
       }
+    }
+
+    if (methodType === 'BANK_TRANSFER' && !bankAccountId) {
+      return res.status(400).json({ message: 'Debes seleccionar una cuenta bancaria activa para transferencias.' });
+    }
+
+    if (methodType === 'CRYPTO' && !cryptoWalletId) {
+      return res.status(400).json({ message: 'Debes seleccionar una wallet activa para pagos cripto.' });
+    }
+
+    if (bankAccountId) {
+      const bankAccount = await prisma.bankAccount.findFirst({ where: { id: Number(bankAccountId), isActive: true } });
+      if (!bankAccount) return res.status(400).json({ message: 'La cuenta bancaria seleccionada no está disponible.' });
+    }
+
+    if (cryptoWalletId) {
+      const wallet = await prisma.cryptoWallet.findFirst({ where: { id: Number(cryptoWalletId), isActive: true } });
+      if (!wallet) return res.status(400).json({ message: 'La wallet seleccionada no está disponible.' });
     }
 
     const created = await prisma.payment.create({
@@ -321,8 +357,8 @@ export const listCryptoWallets = async (_req, res) => {
 export const listPaymentResources = async (_req, res) => {
   try {
     const [bankAccounts, cryptoWallets, cases] = await Promise.all([
-      prisma.bankAccount.findMany({ orderBy: { label: 'asc' } }),
-      prisma.cryptoWallet.findMany({ orderBy: { label: 'asc' } }),
+      prisma.bankAccount.findMany({ where: { isActive: true }, orderBy: { label: 'asc' } }),
+      prisma.cryptoWallet.findMany({ where: { isActive: true }, orderBy: { label: 'asc' } }),
       prisma.case.findMany({
         select: { id: true, caseNumber: true, citizenName: true },
         orderBy: { createdAt: 'desc' }

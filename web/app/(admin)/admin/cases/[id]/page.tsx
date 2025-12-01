@@ -17,6 +17,7 @@ import type {
   PaymentStatus
 } from '@/lib/api';
 import { useCasePayments } from './useCasePayments';
+import { usePaymentResources } from '../payments/usePaymentResources';
 
 const paymentRequestStatuses: PaymentRequestStatus[] = ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED', 'EXPIRED'];
 const paymentStatuses: PaymentStatus[] = ['PENDING', 'APPROVED', 'REJECTED'];
@@ -126,29 +127,40 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
   const [submittingPayment, setSubmittingPayment] = useState(false);
 
   const caseId = Number(params.id);
-  const { paymentRequests, payments, isLoading: isLoadingPayments, error: paymentsError, reload } = useCasePayments(caseId);
+  const { bankAccounts, wallets, loading: resourcesLoading, error: resourcesError, reload: reloadResources } =
+    usePaymentResources();
 
-  const bankOptions = useMemo(() => {
-    const map = new Map<number, string>();
-    paymentRequests.forEach((pr) => {
-      if (pr.bankAccountId && pr.bankAccount?.label) map.set(pr.bankAccountId, pr.bankAccount.label);
-    });
-    payments.forEach((p) => {
-      if (p.bankAccountId && p.bankAccount?.label) map.set(p.bankAccountId, p.bankAccount.label);
-    });
-    return Array.from(map.entries()).map(([id, label]) => ({ id, label }));
-  }, [paymentRequests, payments]);
+  const bankOptionsForRequest = useMemo(
+    () =>
+      bankAccounts
+        .filter((b) => b.isActive && (!requestForm.currency || b.currency === requestForm.currency))
+        .map((b) => ({ id: b.id, label: `${b.label} (${b.currency})` })),
+    [bankAccounts, requestForm.currency]
+  );
 
-  const walletOptions = useMemo(() => {
-    const map = new Map<number, string>();
-    paymentRequests.forEach((pr) => {
-      if (pr.cryptoWalletId && pr.cryptoWallet?.label) map.set(pr.cryptoWalletId, pr.cryptoWallet.label);
-    });
-    payments.forEach((p) => {
-      if (p.cryptoWalletId && p.cryptoWallet?.label) map.set(p.cryptoWalletId, p.cryptoWallet.label);
-    });
-    return Array.from(map.entries()).map(([id, label]) => ({ id, label }));
-  }, [paymentRequests, payments]);
+  const walletOptionsForRequest = useMemo(
+    () => wallets.filter((w) => w.isActive).map((w) => ({ id: w.id, label: `${w.label} · ${w.network}` })),
+    [wallets]
+  );
+
+  const bankOptionsForPayment = useMemo(
+    () =>
+      bankAccounts
+        .filter((b) => b.isActive && (!paymentForm.currency || b.currency === paymentForm.currency))
+        .map((b) => ({ id: b.id, label: `${b.label} (${b.currency})` })),
+    [bankAccounts, paymentForm.currency]
+  );
+
+  const walletOptionsForPayment = useMemo(
+    () => wallets.filter((w) => w.isActive).map((w) => ({ id: w.id, label: `${w.label} · ${w.network}` })),
+    [wallets]
+  );
+
+  useEffect(() => {
+    if (activeTab === 'pagos') {
+      reloadResources();
+    }
+  }, [activeTab, reloadResources]);
 
   useEffect(() => {
     const token = localStorage.getItem('adminToken');
@@ -437,6 +449,8 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
                 Nueva solicitud de pago
               </button>
             </div>
+            {resourcesLoading && <p className="text-sm text-slate-500">Cargando cuentas y wallets...</p>}
+            {resourcesError && <p className="text-sm text-rose-700">{resourcesError}</p>}
             {isLoadingPayments && <p className="text-sm text-slate-500">Cargando pagos...</p>}
             {paymentsError && <p className="text-sm text-rose-700">{paymentsError}</p>}
             {!isLoadingPayments && paymentRequests.length === 0 && (
@@ -506,6 +520,8 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
                 Registrar pago
               </button>
             </div>
+            {resourcesLoading && <p className="text-sm text-slate-500">Cargando cuentas y wallets...</p>}
+            {resourcesError && <p className="text-sm text-rose-700">{resourcesError}</p>}
             {isLoadingPayments && <p className="text-sm text-slate-500">Cargando pagos...</p>}
             {paymentsError && <p className="text-sm text-rose-700">{paymentsError}</p>}
             {!isLoadingPayments && payments.length === 0 && <p className="text-sm text-slate-500">No hay pagos registrados.</p>}
@@ -607,7 +623,9 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Tipo de método
-                {methodSelector(requestForm.methodType, (v) => setRequestForm({ ...requestForm, methodType: v }))}
+                {methodSelector(requestForm.methodType, (v) =>
+                  setRequestForm({ ...requestForm, methodType: v, bankAccountId: '', cryptoWalletId: '' })
+                )}
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Código de método
@@ -627,12 +645,15 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
                     onChange={(e) => setRequestForm({ ...requestForm, bankAccountId: e.target.value, cryptoWalletId: '' })}
                   >
                     <option value="">Selecciona una cuenta</option>
-                    {bankOptions.map((option) => (
+                    {bankOptionsForRequest.map((option) => (
                       <option key={option.id} value={option.id}>
                         {option.label} (#{option.id})
                       </option>
                     ))}
                   </select>
+                  {bankOptionsForRequest.length === 0 && (
+                    <span className="text-xs text-amber-700">No hay cuentas bancarias activas disponibles.</span>
+                  )}
                 </label>
               )}
               {requestForm.methodType === 'CRYPTO' && (
@@ -644,12 +665,15 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
                     onChange={(e) => setRequestForm({ ...requestForm, cryptoWalletId: e.target.value, bankAccountId: '' })}
                   >
                     <option value="">Selecciona una wallet</option>
-                    {walletOptions.map((option) => (
+                    {walletOptionsForRequest.map((option) => (
                       <option key={option.id} value={option.id}>
                         {option.label} (#{option.id})
                       </option>
                     ))}
                   </select>
+                  {walletOptionsForRequest.length === 0 && (
+                    <span className="text-xs text-amber-700">No hay wallets activas disponibles.</span>
+                  )}
                 </label>
               )}
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
@@ -762,7 +786,9 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Tipo de método
-                {methodSelector(paymentForm.methodType, (v) => setPaymentForm({ ...paymentForm, methodType: v }))}
+                {methodSelector(paymentForm.methodType, (v) =>
+                  setPaymentForm({ ...paymentForm, methodType: v, bankAccountId: '', cryptoWalletId: '' })
+                )}
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Código de método
@@ -782,12 +808,15 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
                     onChange={(e) => setPaymentForm({ ...paymentForm, bankAccountId: e.target.value, cryptoWalletId: '' })}
                   >
                     <option value="">Selecciona una cuenta</option>
-                    {bankOptions.map((option) => (
+                    {bankOptionsForPayment.map((option) => (
                       <option key={option.id} value={option.id}>
                         {option.label} (#{option.id})
                       </option>
                     ))}
                   </select>
+                  {bankOptionsForPayment.length === 0 && (
+                    <span className="text-xs text-amber-700">No hay cuentas bancarias activas disponibles.</span>
+                  )}
                 </label>
               )}
               {paymentForm.methodType === 'CRYPTO' && (
@@ -799,12 +828,15 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
                     onChange={(e) => setPaymentForm({ ...paymentForm, cryptoWalletId: e.target.value, bankAccountId: '' })}
                   >
                     <option value="">Selecciona una wallet</option>
-                    {walletOptions.map((option) => (
+                    {walletOptionsForPayment.map((option) => (
                       <option key={option.id} value={option.id}>
                         {option.label} (#{option.id})
                       </option>
                     ))}
                   </select>
+                  {walletOptionsForPayment.length === 0 && (
+                    <span className="text-xs text-amber-700">No hay wallets activas disponibles.</span>
+                  )}
                 </label>
               )}
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
