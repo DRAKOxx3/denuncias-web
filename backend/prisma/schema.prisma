@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         String
+  cases        Case[]   @relation("CaseAdmin")
+}
+
+model Case {
+  id                  Int             @id @default(autoincrement())
+  caseNumber          String          @unique
+  trackingCode        String          @unique
+  citizenName         String
+  citizenIdNumber     String
+  status              String
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  assignedDepartment  String
+  timelineEvents      TimelineEvent[]
+  documents           Document[]
+  payments            Payment[]
+  createdByAdminId    Int?
+  createdByAdmin      User?           @relation("CaseAdmin", fields: [createdByAdminId], references: [id])
+}
+
+model TimelineEvent {
+  id          Int      @id @default(autoincrement())
+  caseId      Int
+  date        DateTime
+  type        String
+  description String
+  createdAt   DateTime @default(now())
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+}
+
+model Document {
+  id        Int      @id @default(autoincrement())
+  caseId    Int
+  title     String
+  type      String
+  filePath  String
+  isPublic  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+}
+
+model Payment {
+  id          Int      @id @default(autoincrement())
+  caseId      Int
+  concept     String
+  amount      Float
+  status      String
+  dueDate     DateTime
+  paidAt      DateTime?
+  receiptPath String?
+  createdAt   DateTime @default(now())
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+}

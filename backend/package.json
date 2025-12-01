@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "node src/server.js",
-    "start": "NODE_ENV=production node src/server.js"
+    "start": "NODE_ENV=production node src/server.js",
+    "prisma:migrate": "prisma migrate dev --name init",
+    "prisma:generate": "prisma generate",
+    "prisma:seed": "node prisma/seed.js"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",
@@ -13,6 +16,9 @@
     "dotenv": "^16.3.1",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
-    "pg": "^8.11.3"
+    "@prisma/client": "^5.20.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.20.0"
   }
 }

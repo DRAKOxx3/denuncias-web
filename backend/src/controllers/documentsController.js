@@ -1,63 +1,98 @@
-import { db, addDocument, deleteDocumentById, updateDocumentById } from '../data/store.js';
+import { prisma } from '../lib/prisma.js';
 
-const ensureCaseExists = (caseId, res) => {
-  const existing = db.cases.find((c) => c.id === caseId);
-  if (!existing) {
-    res.status(404).json({ message: 'Caso no encontrado' });
-    return null;
-  }
-  return existing;
-};
+const mapDocument = (doc) => ({
+  id: doc.id,
+  case_id: doc.caseId,
+  titulo: doc.title,
+  tipo: doc.type,
+  path_archivo: doc.filePath,
+  visible_al_ciudadano: doc.isPublic,
+  creado_en: doc.createdAt.toISOString()
+});
 
 export const listDocuments = async (req, res) => {
   const caseId = Number(req.params.id);
-  const existing = ensureCaseExists(caseId, res);
-  if (!existing) return;
 
-  const docs = db.documents.filter((doc) => doc.case_id === caseId);
-  return res.json(docs);
+  try {
+    const existing = await prisma.case.findUnique({ where: { id: caseId } });
+    if (!existing) return res.status(404).json({ message: 'Caso no encontrado' });
+
+    const documents = await prisma.document.findMany({ where: { caseId } });
+    return res.json(documents.map(mapDocument));
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al listar documentos.' });
+  }
 };
 
-export const uploadDocument = async (req, res) => {
+export const createDocument = async (req, res) => {
   const caseId = Number(req.params.id);
-  const existing = ensureCaseExists(caseId, res);
-  if (!existing) return;
-
   const { titulo, tipo, path_archivo, visible_al_ciudadano = false } = req.body || {};
+
   if (!titulo || !tipo || !path_archivo) {
     return res.status(400).json({ message: 'Título, tipo y ruta de archivo son obligatorios.' });
   }
 
-  const doc = addDocument(caseId, { titulo, tipo, path_archivo, visible_al_ciudadano });
-  return res.status(201).json(doc);
+  try {
+    const existing = await prisma.case.findUnique({ where: { id: caseId } });
+    if (!existing) return res.status(404).json({ message: 'Caso no encontrado' });
+
+    const document = await prisma.document.create({
+      data: {
+        caseId,
+        title: titulo,
+        type: tipo,
+        filePath: path_archivo,
+        isPublic: visible_al_ciudadano
+      }
+    });
+
+    return res.status(201).json(mapDocument(document));
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al crear documento.' });
+  }
 };
 
 export const updateDocument = async (req, res) => {
   const caseId = Number(req.params.id);
   const documentId = Number(req.params.documentId);
-  const existing = ensureCaseExists(caseId, res);
-  if (!existing) return;
+  const updates = req.body || {};
 
-  const doc = db.documents.find((d) => d.id === documentId && d.case_id === caseId);
-  if (!doc) {
-    return res.status(404).json({ message: 'Documento no encontrado para este caso.' });
+  try {
+    const document = await prisma.document.findFirst({ where: { id: documentId, caseId } });
+    if (!document) {
+      return res.status(404).json({ message: 'Documento no encontrado para este caso.' });
+    }
+
+    const data = {};
+    if (updates.titulo) data.title = updates.titulo;
+    if (updates.tipo) data.type = updates.tipo;
+    if (updates.path_archivo) data.filePath = updates.path_archivo;
+    if (updates.visible_al_ciudadano !== undefined) data.isPublic = updates.visible_al_ciudadano;
+
+    const updated = await prisma.document.update({ where: { id: documentId }, data });
+    return res.json(mapDocument(updated));
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al actualizar documento.' });
   }
-
-  const updated = updateDocumentById(documentId, req.body || {});
-  return res.json(updated);
 };
 
 export const deleteDocument = async (req, res) => {
   const caseId = Number(req.params.id);
   const documentId = Number(req.params.documentId);
-  const existing = ensureCaseExists(caseId, res);
-  if (!existing) return;
 
-  const doc = db.documents.find((d) => d.id === documentId && d.case_id === caseId);
-  if (!doc) {
-    return res.status(404).json({ message: 'Documento no encontrado para este caso.' });
+  try {
+    const document = await prisma.document.findFirst({ where: { id: documentId, caseId } });
+    if (!document) {
+      return res.status(404).json({ message: 'Documento no encontrado para este caso.' });
+    }
+
+    await prisma.document.delete({ where: { id: documentId } });
+    return res.status(204).send();
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al eliminar documento.' });
   }
-
-  deleteDocumentById(documentId);
-  return res.status(204).send();
 };
