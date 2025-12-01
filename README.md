@@ -1,6 +1,6 @@
 # Proyecto denuncias-web
 
-Estructura base para un sistema de gestión de denuncias con backend en Node.js/Express y frontend en React (Vite). Incluye endpoints públicos para consulta de expedientes y panel de administración con autenticación JWT.
+Estructura base para un sistema de gestión de denuncias con backend en Node.js/Express y frontend en Next.js. Incluye endpoints públicos para consulta de expedientes y panel de administración con autenticación JWT.
 
 ## Backend (`backend/`)
 - Express + Prisma ORM con base de datos SQLite local (`backend/prisma/dev.db`).
@@ -32,10 +32,31 @@ Estructura base para un sistema de gestión de denuncias con backend en Node.js/
    npm run dev
    ```
 
-## Frontend (`frontend/`)
-- Vite + React + React Router.
-- Pantalla pública de búsqueda de expediente y página de detalle de caso.
-- Panel admin con listado de casos y formulario básico de edición/creación.
+## Frontend Next.js (`web/`)
+- Next.js 14 con App Router, TypeScript y Tailwind CSS.
+- Rutas públicas: `/` (búsqueda de expediente) y `/cases/[id]` (detalle por código de seguimiento).
+- Rutas admin: `/admin/login`, `/admin/cases`, `/admin/cases/new`, `/admin/cases/[id]`.
+- Cliente API en `web/lib/api.ts` que consume el backend Express (puedes ajustar la URL con `NEXT_PUBLIC_API_BASE_URL`).
+- `next.config.mjs` incluye un rewrite para apuntar `/api/*` al backend en `localhost:4000` por defecto.
+
+### Puesta en marcha del frontend
+1. Instalar dependencias
+   ```bash
+   cd web
+   npm install
+   ```
+
+2. Definir la URL del backend (opcional)
+   ```bash
+   export NEXT_PUBLIC_API_BASE_URL="http://localhost:4000"
+   ```
+
+3. Levantar el servidor de desarrollo
+   ```bash
+   npm run dev
+   ```
+
+> El frontend previo en `frontend/` (Vite + React) se conserva solo como referencia durante la migración.
 
 ## Próximos pasos sugeridos
 - Conectar controladores a la base de datos PostgreSQL usando consultas parametrizadas.
