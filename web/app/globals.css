@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: #F4F4F4;
+  color: #0D2A45;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.container {
+  @apply max-w-6xl mx-auto px-4;
+}
+
+.button-primary {
+  @apply bg-primary text-white px-4 py-2 rounded-md shadow-sm hover:bg-[#0b3257] transition font-semibold;
+}
+
+.button-secondary {
+  @apply border border-primary text-primary px-4 py-2 rounded-md hover:bg-primary hover:text-white transition font-semibold;
+}
+
+.card {
+  @apply bg-white rounded-xl shadow-sm p-6 border border-slate-100;
+}
