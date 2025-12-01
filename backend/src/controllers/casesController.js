@@ -37,21 +37,57 @@ const mapDocument = (doc) => ({
   creado_en: doc.createdAt.toISOString()
 });
 
+const mapPaymentRequestPublic = (request) => ({
+  id: request.id,
+  case_id: request.caseId,
+  amount: toNumber(request.amount),
+  currency: request.currency,
+  method_type: request.methodType,
+  method_code: request.methodCode,
+  status: request.status,
+  due_date: request.dueDate ? request.dueDate.toISOString() : null,
+  notes_for_client: request.notesForClient,
+  qr_image_url: request.qrImageUrl,
+  bank_account: request.bankAccount
+    ? {
+        id: request.bankAccount.id,
+        label: request.bankAccount.label,
+        bankName: request.bankAccount.bankName,
+        iban: request.bankAccount.iban,
+        currency: request.bankAccount.currency,
+        bic: request.bankAccount.bic
+      }
+    : null,
+  crypto_wallet: request.cryptoWallet
+    ? {
+        id: request.cryptoWallet.id,
+        label: request.cryptoWallet.label,
+        network: request.cryptoWallet.network,
+        address: request.cryptoWallet.address,
+        asset: request.cryptoWallet.asset,
+        currency: request.cryptoWallet.currency
+      }
+    : null,
+  created_at: request.createdAt.toISOString(),
+  updated_at: request.updatedAt.toISOString()
+});
+
 const mapPayment = (payment) => ({
   id: payment.id,
   case_id: payment.caseId,
-  monto: toNumber(payment.amount),
-  moneda: payment.currency,
-  estado: payment.status,
-  metodo: payment.methodType,
-  metodo_codigo: payment.methodCode,
-  referencia: payment.reference,
-  pagador: payment.payerName,
-  banco_pagador: payment.payerBank,
+  amount: toNumber(payment.amount),
+  currency: payment.currency,
+  status: payment.status,
+  method_type: payment.methodType,
+  method_code: payment.methodCode,
+  payer_name: payment.payerName,
+  payer_bank: payment.payerBank,
+  bank_reference: payment.bankReference || payment.reference,
   tx_hash: payment.txHash,
-  fecha_pago: payment.paidAt ? payment.paidAt.toISOString() : null,
-  creado_en: payment.createdAt.toISOString(),
-  solicitud_pago_id: payment.paymentRequestId
+  paid_at: payment.paidAt ? payment.paidAt.toISOString() : null,
+  created_at: payment.createdAt.toISOString(),
+  payment_request_id: payment.paymentRequestId,
+  receipt_path: payment.receiptDocument?.filePath || null
 });
 
 export const searchCase = async (req, res) => {
@@ -74,17 +110,23 @@ export const searchCase = async (req, res) => {
       return res.status(404).json({ message: 'No se encontró un expediente con esos datos.' });
     }
 
-    const [timeline, documents, payments] = await Promise.all([
+    const [timeline, documents, payments, paymentRequests] = await Promise.all([
       prisma.timelineEvent.findMany({ where: { caseId: foundCase.id }, orderBy: { date: 'asc' } }),
       prisma.document.findMany({ where: { caseId: foundCase.id, isPublic: true } }),
-      prisma.payment.findMany({ where: { caseId: foundCase.id } })
+      prisma.payment.findMany({ where: { caseId: foundCase.id, status: 'APPROVED' }, include: { receiptDocument: true } }),
+      prisma.paymentRequest.findMany({
+        where: { caseId: foundCase.id, status: { in: ['PENDING', 'SENT', 'AWAITING_CONFIRMATION'] } },
+        include: { bankAccount: true, cryptoWallet: true },
+        orderBy: { createdAt: 'desc' }
+      })
     ]);
 
     return res.json({
       case: mapCase(foundCase),
       timeline: timeline.map(mapTimelineEvent),
       documents: documents.map(mapDocument),
-      payments: payments.map(mapPayment)
+      payments: payments.map(mapPayment),
+      paymentRequests: paymentRequests.map(mapPaymentRequestPublic)
     });
   } catch (error) {
     console.error(error);

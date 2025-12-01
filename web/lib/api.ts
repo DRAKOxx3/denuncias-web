@@ -41,16 +41,8 @@ export type CaseSearchResponse = {
     visible_al_ciudadano: boolean;
     creado_en: string;
   }[];
-  payments: {
-    id: number;
-    case_id: number;
-    concepto: string;
-    monto: number;
-    estado: string;
-    fecha_vencimiento: string;
-    fecha_pago: string | null;
-    comprobante_path: string | null;
-  }[];
+  payments: PublicPayment[];
+  paymentRequests: PublicPaymentRequest[];
 };
 
 export type AdminCase = {
@@ -131,6 +123,37 @@ export type PaymentRequest = {
   updatedAt: string;
 };
 
+export type PublicPaymentRequest = {
+  id: number;
+  case_id: number;
+  amount: number;
+  currency: string;
+  method_type: string;
+  method_code: string;
+  status: PaymentRequestStatus;
+  due_date?: string | null;
+  notes_for_client?: string | null;
+  qr_image_url?: string | null;
+  bank_account?: {
+    id: number;
+    label: string;
+    bankName: string;
+    iban: string;
+    currency: string;
+    bic?: string | null;
+  } | null;
+  crypto_wallet?: {
+    id: number;
+    label: string;
+    network: string;
+    address: string;
+    asset: string;
+    currency?: string | null;
+  } | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Payment = {
   id: number;
   caseId: number;
@@ -159,9 +182,28 @@ export type Payment = {
   txHash?: string | null;
   paidAt?: string | null;
   receiptDocumentId?: number | null;
+  receiptDocument?: { id: number; filePath: string; title?: string; type?: string; createdAt?: string } | null;
   notes?: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type PublicPayment = {
+  id: number;
+  case_id: number;
+  amount: number;
+  currency: string;
+  status: PaymentStatus;
+  method_type: string;
+  method_code: string;
+  payer_name?: string | null;
+  payer_bank?: string | null;
+  bank_reference?: string | null;
+  tx_hash?: string | null;
+  paid_at?: string | null;
+  created_at: string;
+  payment_request_id?: number | null;
+  receipt_path?: string | null;
 };
 
 async function handleResponse<T>(res: Response): Promise<T> {
@@ -316,6 +358,23 @@ export async function updatePayment(
   return handleResponse(res);
 }
 
+export async function reviewPayment(
+  token: string,
+  id: number,
+  action: 'APPROVE' | 'REJECT',
+  adminComment?: string
+): Promise<Payment> {
+  const res = await fetch(`${API_BASE}/api/admin/payments/${id}/review`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ action, adminComment })
+  });
+  return handleResponse(res);
+}
+
 export async function listPaymentRequestsAdmin(token: string): Promise<PaymentRequest[]> {
   const res = await fetch(`${API_BASE}/api/admin/payment-requests`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -366,13 +425,23 @@ export async function createBankAccount(
   token: string,
   payload: Omit<BankAccount, 'id' | 'isActive'> & { isActive?: boolean }
 ): Promise<BankAccount> {
+  const body = {
+    ...payload,
+    label: payload.label?.trim(),
+    bankName: payload.bankName?.trim(),
+    iban: payload.iban?.trim(),
+    bic: payload.bic?.trim() || undefined,
+    country: payload.country?.trim() || undefined,
+    currency: payload.currency?.trim(),
+    notes: payload.notes?.trim() || undefined
+  };
   const res = await fetch(`${API_BASE}/api/admin/bank-accounts`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(body)
   });
   return handleResponse(res);
 }
@@ -405,13 +474,22 @@ export async function createCryptoWalletApi(
   token: string,
   payload: Omit<CryptoWallet, 'id' | 'isActive'> & { isActive?: boolean }
 ): Promise<CryptoWallet> {
+  const body = {
+    ...payload,
+    label: payload.label?.trim(),
+    asset: payload.asset?.trim(),
+    currency: payload.currency?.trim() || payload.asset,
+    network: payload.network?.trim(),
+    address: payload.address?.trim(),
+    notes: payload.notes?.trim() || undefined
+  };
   const res = await fetch(`${API_BASE}/api/admin/crypto-wallets`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(body)
   });
   return handleResponse(res);
 }
@@ -436,6 +514,17 @@ export async function deactivateCryptoWalletApi(token: string, id: number): Prom
   const res = await fetch(`${API_BASE}/api/admin/crypto-wallets/${id}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` }
+  });
+  return handleResponse(res);
+}
+
+export async function confirmPaymentRequestPublic(
+  requestId: number,
+  form: FormData
+): Promise<{ paymentRequest: PublicPaymentRequest; payment: PublicPayment }> {
+  const res = await fetch(`${API_BASE}/api/public/payment-requests/${requestId}/confirm`, {
+    method: 'POST',
+    body: form
   });
   return handleResponse(res);
 }

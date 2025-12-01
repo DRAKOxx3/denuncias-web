@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import path from 'path';
 import { prisma } from '../lib/prisma.js';
 
 const mapAdminCaseSummary = (item) => ({
@@ -28,7 +29,8 @@ export const getCasePayments = async (req, res) => {
         include: {
           bankAccount: true,
           cryptoWallet: true,
-          paymentRequest: true
+          paymentRequest: true,
+          receiptDocument: true
         },
         orderBy: { createdAt: 'desc' }
       })
@@ -68,7 +70,8 @@ export const listPayments = async (_req, res) => {
         paymentRequest: {
           include: { case: true }
         },
-        case: true
+        case: true,
+        receiptDocument: true
       },
       orderBy: { createdAt: 'desc' }
     });
@@ -235,7 +238,7 @@ export const createPayment = async (req, res) => {
     if (paymentRequestId && status === 'APPROVED') {
       await prisma.paymentRequest.update({
         where: { id: Number(paymentRequestId) },
-        data: { status: 'APPROVED' }
+        data: { status: 'PAID' }
       });
     }
 
@@ -284,7 +287,7 @@ export const updatePayment = async (req, res) => {
     if (existing.paymentRequestId && status === 'APPROVED') {
       await prisma.paymentRequest.update({
         where: { id: existing.paymentRequestId },
-        data: { status: 'APPROVED' }
+        data: { status: 'PAID' }
       });
     }
 
@@ -337,8 +340,30 @@ export const listPaymentResources = async (_req, res) => {
   }
 };
 
+const cleanString = (value) => (typeof value === 'string' ? value.trim() : value);
+
+const handlePrismaConstraint = (error, res, fallbackMessage) => {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    const target = Array.isArray(error.meta?.target) ? error.meta.target.join(', ') : '';
+    const fieldMessage = target?.includes('iban')
+      ? 'Ya existe una cuenta con este IBAN.'
+      : target?.includes('address')
+        ? 'Ya existe una wallet con esa dirección.'
+        : 'El registro ya existe.';
+    return res.status(400).json({ message: fieldMessage });
+  }
+  console.error(error);
+  return res.status(500).json({ message: fallbackMessage });
+};
+
 export const createBankAccount = async (req, res) => {
-  const { label, bankName, iban, bic, country, currency, notes } = req.body || {};
+  const label = cleanString(req.body?.label);
+  const bankName = cleanString(req.body?.bankName);
+  const iban = cleanString(req.body?.iban);
+  const bic = cleanString(req.body?.bic);
+  const country = cleanString(req.body?.country) || 'ES';
+  const currency = cleanString(req.body?.currency);
+  const notes = cleanString(req.body?.notes);
 
   if (!label || !bankName || !iban || !currency) {
     return res.status(400).json({ message: 'label, bankName, iban y currency son obligatorios.' });
@@ -351,15 +376,14 @@ export const createBankAccount = async (req, res) => {
         bankName,
         iban,
         bic: bic || null,
-        country: country || 'ES',
+        country,
         currency,
         notes: notes || null
       }
     });
     return res.status(201).json(created);
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Error al crear la cuenta bancaria.' });
+    return handlePrismaConstraint(error, res, 'Error al crear la cuenta bancaria.');
   }
 };
 
@@ -374,21 +398,20 @@ export const updateBankAccount = async (req, res) => {
     const updated = await prisma.bankAccount.update({
       where: { id },
       data: {
-        label: label ?? existing.label,
-        bankName: bankName ?? existing.bankName,
-        iban: iban ?? existing.iban,
-        bic: bic ?? existing.bic,
-        country: country ?? existing.country,
-        currency: currency ?? existing.currency,
-        notes: notes ?? existing.notes,
+        label: label !== undefined ? cleanString(label) : existing.label,
+        bankName: bankName !== undefined ? cleanString(bankName) : existing.bankName,
+        iban: iban !== undefined ? cleanString(iban) : existing.iban,
+        bic: bic !== undefined ? cleanString(bic) : existing.bic,
+        country: country !== undefined ? cleanString(country) || 'ES' : existing.country,
+        currency: currency !== undefined ? cleanString(currency) : existing.currency,
+        notes: notes !== undefined ? cleanString(notes) : existing.notes,
         isActive: isActive ?? existing.isActive
       }
     });
 
     return res.json(updated);
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Error al actualizar la cuenta bancaria.' });
+    return handlePrismaConstraint(error, res, 'Error al actualizar la cuenta bancaria.');
   }
 };
 
@@ -407,7 +430,13 @@ export const deactivateBankAccount = async (req, res) => {
 };
 
 export const createCryptoWallet = async (req, res) => {
-  const { label, asset, network, address, notes, currency, isActive } = req.body || {};
+  const label = cleanString(req.body?.label);
+  const asset = cleanString(req.body?.asset);
+  const network = cleanString(req.body?.network);
+  const address = cleanString(req.body?.address);
+  const notes = cleanString(req.body?.notes);
+  const currency = cleanString(req.body?.currency) || asset || 'CRYPTO';
+  const isActive = req.body?.isActive;
 
   if (!label || !network || !address) {
     return res.status(400).json({ message: 'label, network y address son obligatorios.' });
@@ -422,13 +451,12 @@ export const createCryptoWallet = async (req, res) => {
         address,
         notes: notes || null,
         isActive: isActive ?? true,
-        currency: currency || asset || 'CRYPTO'
+        currency
       }
     });
     return res.status(201).json(created);
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Error al crear la wallet.' });
+    return handlePrismaConstraint(error, res, 'Error al crear la wallet.');
   }
 };
 
@@ -443,19 +471,18 @@ export const updateCryptoWallet = async (req, res) => {
     const updated = await prisma.cryptoWallet.update({
       where: { id },
       data: {
-        label: label ?? existing.label,
-        asset: asset ?? existing.asset,
-        currency: currency ?? existing.currency,
-        network: network ?? existing.network,
-        address: address ?? existing.address,
-        notes: notes ?? existing.notes,
+        label: label !== undefined ? cleanString(label) : existing.label,
+        asset: asset !== undefined ? cleanString(asset) : existing.asset,
+        currency: currency !== undefined ? cleanString(currency) : existing.currency,
+        network: network !== undefined ? cleanString(network) : existing.network,
+        address: address !== undefined ? cleanString(address) : existing.address,
+        notes: notes !== undefined ? cleanString(notes) : existing.notes,
         isActive: isActive ?? existing.isActive
       }
     });
     return res.json(updated);
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Error al actualizar la wallet.' });
+    return handlePrismaConstraint(error, res, 'Error al actualizar la wallet.');
   }
 };
 
@@ -470,5 +497,126 @@ export const deactivateCryptoWallet = async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Error al desactivar la wallet.' });
+  }
+};
+
+export const confirmPaymentRequestPublic = async (req, res) => {
+  const requestId = Number(req.params.id);
+  const { payerName, payerBank, bankReference, txHash, paidAt, caseId } = req.body || {};
+  const file = req.file;
+
+  if (!payerName || !file || !caseId) {
+    return res.status(400).json({ message: 'Nombre del pagador, caso y comprobante son obligatorios.' });
+  }
+
+  try {
+    const paymentRequest = await prisma.paymentRequest.findUnique({
+      where: { id: requestId },
+      include: { bankAccount: true, cryptoWallet: true }
+    });
+
+    if (!paymentRequest) {
+      return res.status(404).json({ message: 'Solicitud de pago no encontrada' });
+    }
+
+    if (caseId && paymentRequest.caseId !== Number(caseId)) {
+      return res.status(400).json({ message: 'La solicitud de pago no corresponde a este caso.' });
+    }
+
+    if (!['PENDING', 'SENT', 'AWAITING_CONFIRMATION'].includes(paymentRequest.status)) {
+      return res.status(400).json({ message: 'La solicitud no admite confirmación en su estado actual.' });
+    }
+
+    const relativePath = `/uploads/${path.basename(file.path)}`;
+    const receiptDocument = await prisma.document.create({
+      data: {
+        caseId: paymentRequest.caseId,
+        title: `Comprobante pago ${paymentRequest.id}`,
+        type: file.mimetype || 'receipt',
+        filePath: relativePath,
+        isPublic: false
+      }
+    });
+
+    const createdPayment = await prisma.payment.create({
+      data: {
+        caseId: paymentRequest.caseId,
+        paymentRequestId: paymentRequest.id,
+        amount: paymentRequest.amount,
+        currency: paymentRequest.currency,
+        methodType: paymentRequest.methodType,
+        methodCode: paymentRequest.methodCode,
+        bankAccountId: paymentRequest.bankAccountId,
+        cryptoWalletId: paymentRequest.cryptoWalletId,
+        status: 'PENDING_REVIEW',
+        payerName,
+        payerBank: payerBank || null,
+        bankReference: bankReference || null,
+        txHash: txHash || null,
+        paidAt: paidAt ? new Date(paidAt) : new Date(),
+        receiptDocumentId: receiptDocument.id
+      },
+      include: {
+        bankAccount: true,
+        cryptoWallet: true,
+        paymentRequest: true,
+        receiptDocument: true
+      }
+    });
+
+    const updatedRequest = await prisma.paymentRequest.update({
+      where: { id: paymentRequest.id },
+      data: { status: 'AWAITING_CONFIRMATION' }
+    });
+
+    return res.status(201).json({ paymentRequest: updatedRequest, payment: createdPayment });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al registrar el comprobante de pago.' });
+  }
+};
+
+export const reviewPayment = async (req, res) => {
+  const id = Number(req.params.id);
+  const { action, adminComment } = req.body || {};
+
+  if (!['APPROVE', 'REJECT'].includes(action)) {
+    return res.status(400).json({ message: 'Acción inválida para revisión.' });
+  }
+
+  try {
+    const payment = await prisma.payment.findUnique({
+      where: { id },
+      include: { paymentRequest: true }
+    });
+
+    if (!payment) return res.status(404).json({ message: 'Pago no encontrado' });
+
+    const nextStatus = action === 'APPROVE' ? 'APPROVED' : 'REJECTED';
+    const nextRequestStatus = action === 'APPROVE' ? 'PAID' : 'PENDING';
+
+    const updatedPayment = await prisma.payment.update({
+      where: { id },
+      data: {
+        status: nextStatus,
+        notes: adminComment ? `${payment.notes ? `${payment.notes} | ` : ''}${adminComment}` : payment.notes
+      },
+      include: {
+        bankAccount: true,
+        cryptoWallet: true,
+        paymentRequest: true,
+        receiptDocument: true,
+        case: true
+      }
+    });
+
+    if (payment.paymentRequestId) {
+      await prisma.paymentRequest.update({ where: { id: payment.paymentRequestId }, data: { status: nextRequestStatus } });
+    }
+
+    return res.json(updatedPayment);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al revisar el pago.' });
   }
 };

@@ -45,10 +45,20 @@ Estructura base para un sistema de gestión de denuncias con backend en Node.js/
   - `PATCH /api/admin/payment-requests/:id`
   - `POST /api/admin/cases/:caseId/payments`
   - `PATCH /api/admin/payments/:id`
+- Revisión y recursos:
+  - `POST /api/admin/payments/:id/review` para aprobar/rechazar pagos enviados por ciudadanos.
+  - `GET /api/admin/payment-resources` para cargar casos, cuentas y wallets disponibles.
 - Métodos auxiliares: `GET /api/admin/bank-accounts`, `GET /api/admin/crypto-wallets`, `GET /api/admin/payment-resources`
 - CRUD de métodos de cobro:
   - `POST /api/admin/bank-accounts`, `PUT /api/admin/bank-accounts/:id`, `DELETE /api/admin/bank-accounts/:id`
   - `POST /api/admin/crypto-wallets`, `PUT /api/admin/crypto-wallets/:id`, `DELETE /api/admin/crypto-wallets/:id`
+- Ejemplos de recursos válidos (semilla `npm run prisma:seed`):
+  - Cuenta bancaria: `{ label: "Cuenta EUR Principal", bankName: "Banco Nacional", iban: "ES9820385778983000760236", currency: "EUR", country: "ES" }`
+  - Wallet cripto: `{ label: "USDT TRC20 Principal", asset: "USDT", currency: "USDT", network: "TRC20", address: "TK8C2pQpExampleTRC20Wallet" }`
+- Flujo ciudadano:
+  - `POST /api/public/payment-requests/:id/confirm` permite a un ciudadano marcar un pago como realizado adjuntando comprobante.
+  - En la página pública del expediente se muestran solicitudes pendientes (PENDING/SENT/AWAITING_CONFIRMATION) y pagos aprobados.
+  - Los comprobantes se guardan como documentos privados y quedan pendientes de revisión de un administrador.
 - Cada vez que cambies el esquema de Prisma, ejecuta `npm run prisma:migrate` (o `npx prisma migrate dev --name <cambio>`) para aplicar las migraciones y actualizar la base de datos local.
 - Si no ves cuentas bancarias o wallets en el panel `/admin/payments`, ejecuta `npm run prisma:seed` tras migrar para volver a cargar los datos de ejemplo (cuentas SEPA y wallets cripto).
 
@@ -56,7 +66,7 @@ Estructura base para un sistema de gestión de denuncias con backend en Node.js/
 - Next.js 14 con App Router, TypeScript y Tailwind CSS.
 - Rutas públicas: `/` (búsqueda de expediente) y `/cases/[id]` (detalle por código de seguimiento), organizadas en `app/(public)` con el layout institucional (`app/(public)/layout.tsx`).
 - Rutas admin: `/admin/login`, `/admin/cases`, `/admin/cases/new`, `/admin/cases/[id]` bajo `app/(admin)/admin` con sidebar y cabecera en `app/(admin)/admin/layout.tsx`.
-- Nueva vista `/admin/payments` para que los administradores consulten todas las solicitudes y pagos, creen nuevas solicitudes asociadas a un caso, actualicen estados, asignen cuentas bancarias o wallets cripto y visualicen códigos QR de pago.
+- Nueva vista `/admin/payments` para que los administradores consulten todas las solicitudes y pagos, creen nuevas solicitudes asociadas a un caso, actualicen estados, asignen cuentas bancarias o wallets cripto, visualicen códigos QR y revisen/validen comprobantes enviados por ciudadanos.
 - Cliente API en `web/lib/api.ts` que consume el backend Express (puedes ajustar la URL con `NEXT_PUBLIC_API_BASE_URL`).
 - `next.config.mjs` incluye un rewrite para apuntar `/api/*` al backend en `localhost:4000` por defecto.
 

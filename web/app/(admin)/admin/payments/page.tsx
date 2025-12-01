@@ -12,6 +12,7 @@ import {
   updateCryptoWalletApi,
   updatePayment,
   updatePaymentRequest,
+  reviewPayment,
   type Payment,
   type PaymentRequest,
   type PaymentRequestStatus,
@@ -47,6 +48,7 @@ const paymentBadgeClass = (status: string) => {
 };
 
 const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleString() : '-');
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
 
 function MethodSummary({ request }: { request: PaymentRequest }) {
   if (request.methodType === 'CRYPTO') {
@@ -150,6 +152,8 @@ export default function AdminPaymentsPage() {
     });
     return map;
   }, [paymentRequests]);
+
+  const pendingReviewPayments = useMemo(() => payments.filter((p) => p.status === 'PENDING_REVIEW'), [payments]);
 
   const handleCreateRequest = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -324,6 +328,17 @@ export default function AdminPaymentsPage() {
       reload();
     } catch (err: any) {
       setStatusMessage(err?.message || 'No se pudo actualizar el estado del pago.');
+    }
+  };
+
+  const handleReviewPaymentAction = async (id: number, action: 'APPROVE' | 'REJECT') => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
+    if (!token) return;
+    try {
+      await reviewPayment(token, id, action);
+      reload();
+    } catch (err: any) {
+      setStatusMessage(err?.message || 'No se pudo revisar el pago.');
     }
   };
 
@@ -528,6 +543,84 @@ export default function AdminPaymentsPage() {
         </div>
       </div>
 
+      <div className="card shadow-sm">
+        <div className="flex items-center justify-between p-4 border-b">
+          <div>
+            <p className="text-xs uppercase tracking-widest text-primary/70">Revisión</p>
+            <h2 className="text-lg font-semibold text-primary">Pagos pendientes de revisión</h2>
+          </div>
+          <button className="button-secondary text-sm" onClick={reload}>
+            Recargar
+          </button>
+        </div>
+        <div className="overflow-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-primary/5 text-left text-slate-700">
+              <tr>
+                <th className="p-3 font-semibold">Caso</th>
+                <th className="p-3 font-semibold">Monto</th>
+                <th className="p-3 font-semibold">Método</th>
+                <th className="p-3 font-semibold">Comprobante</th>
+                <th className="p-3 font-semibold">Pagador</th>
+                <th className="p-3 font-semibold">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendingReviewPayments.map((p, idx) => (
+                <tr key={p.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'}>
+                  <td className="p-3 align-top">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-primary font-semibold">{p.case?.caseNumber || p.caseId}</span>
+                      <span className="text-xs text-slate-600">{p.case?.citizenName || '-'}</span>
+                    </div>
+                  </td>
+                  <td className="p-3 align-top font-semibold text-slate-800">
+                    {p.amount} {p.currency}
+                  </td>
+                  <td className="p-3 align-top text-sm text-slate-700">
+                    {p.methodType === 'CRYPTO' ? 'Cripto' : 'Transferencia'} · {p.methodCode}
+                  </td>
+                  <td className="p-3 align-top text-xs">
+                    {p.receiptDocument?.filePath ? (
+                      <a
+                        className="text-primary underline"
+                        href={`${API_BASE}${p.receiptDocument.filePath}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Ver comprobante
+                      </a>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td className="p-3 align-top text-xs text-slate-600">
+                    <div>{p.payerName || '-'}</div>
+                    <div>{p.payerBank || p.txHash || p.bankReference || '-'}</div>
+                    <div>{p.paidAt ? new Date(p.paidAt).toLocaleString() : '-'}</div>
+                  </td>
+                  <td className="p-3 align-top space-y-2 min-w-[140px]">
+                    <button
+                      className="button-primary w-full"
+                      onClick={() => handleReviewPaymentAction(p.id, 'APPROVE')}
+                    >
+                      Aprobar
+                    </button>
+                    <button
+                      className="button-secondary w-full"
+                      onClick={() => handleReviewPaymentAction(p.id, 'REJECT')}
+                    >
+                      Rechazar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {pendingReviewPayments.length === 0 && <p className="text-sm text-slate-500 p-4">No hay pagos pendientes.</p>}
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div className="card shadow-sm overflow-hidden">
           <div className="flex items-center justify-between p-4 border-b">
@@ -586,7 +679,7 @@ export default function AdminPaymentsPage() {
                         value={pr.status}
                         onChange={(e) => handleUpdateRequestStatus(pr.id, e.target.value as PaymentRequestStatus)}
                       >
-                        {['PENDING', 'SENT', 'AWAITING_CONFIRMATION', 'APPROVED', 'CANCELLED', 'EXPIRED', 'REJECTED'].map((s) => (
+                        {['PENDING', 'SENT', 'AWAITING_CONFIRMATION', 'PAID', 'APPROVED', 'CANCELLED', 'EXPIRED', 'REJECTED'].map((s) => (
                           <option key={s} value={s}>
                             {s}
                           </option>
@@ -622,6 +715,7 @@ export default function AdminPaymentsPage() {
                   <th className="p-3 font-semibold">Método</th>
                   <th className="p-3 font-semibold">Estado</th>
                   <th className="p-3 font-semibold">Pagador / referencia</th>
+                  <th className="p-3 font-semibold">Comprobante</th>
                   <th className="p-3 font-semibold">Solicitud</th>
                   <th className="p-3 font-semibold">Acciones</th>
                 </tr>
@@ -653,14 +747,28 @@ export default function AdminPaymentsPage() {
                         {p.status}
                       </span>
                     </td>
-                    <td className="p-3 align-top text-xs text-slate-600">
-                      <div>{p.payerName || '-'}</div>
-                      <div>{p.payerBank || p.txHash || p.reference || '-'}</div>
-                      <div>Pagado: {formatDate(p.paidAt as any)}</div>
-                    </td>
-                    <td className="p-3 align-top text-xs text-slate-600">
-                      {p.paymentRequestId ? `Solicitud #${p.paymentRequestId}` : '—'}
-                    </td>
+                  <td className="p-3 align-top text-xs text-slate-600">
+                    <div>{p.payerName || '-'}</div>
+                    <div>{p.payerBank || p.txHash || p.reference || '-'}</div>
+                    <div>Pagado: {formatDate(p.paidAt as any)}</div>
+                  </td>
+                  <td className="p-3 align-top text-xs text-slate-600">
+                    {p.receiptDocument?.filePath ? (
+                      <a
+                        className="text-primary underline"
+                        href={`${API_BASE}${p.receiptDocument.filePath}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Ver comprobante
+                      </a>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td className="p-3 align-top text-xs text-slate-600">
+                    {p.paymentRequestId ? `Solicitud #${p.paymentRequestId}` : '—'}
+                  </td>
                     <td className="p-3 align-top">
                       <select
                         className="w-full border rounded-md px-3 py-2 text-sm"

@@ -18,7 +18,8 @@ import {
   deactivateBankAccount,
   createCryptoWallet,
   updateCryptoWallet,
-  deactivateCryptoWallet
+  deactivateCryptoWallet,
+  reviewPayment
 } from '../controllers/paymentsController.js';
 
 const router = Router();
@@ -44,5 +45,6 @@ router.post('/cases/:caseId/payment-requests', authorize('admin', 'super_admin')
 router.patch('/payment-requests/:id', authorize('admin', 'super_admin'), updatePaymentRequest);
 router.post('/cases/:caseId/payments', authorize('admin', 'super_admin'), createPayment);
 router.patch('/payments/:id', authorize('admin', 'super_admin'), updatePayment);
+router.post('/payments/:id/review', authorize('admin', 'super_admin'), reviewPayment);
 
 export default router;

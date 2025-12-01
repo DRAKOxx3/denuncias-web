@@ -1,5 +1,6 @@
 import { searchCase } from '@/lib/api';
 import type { CaseSearchResponse } from '@/lib/api';
+import { CitizenPaymentsSection } from './payments-section';
 
 const badgeColors: Record<string, string> = {
   completado: 'bg-success/15 text-success border-success/30',
@@ -76,45 +77,33 @@ export default async function CaseDetailPage({ params }: { params: { id: string 
 
         <section className="card shadow-sm space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-lg text-primary">Pagos</h2>
-            <span className="text-xs text-slate-500">Estado</span>
+            <h2 className="font-semibold text-lg text-primary">Documentos públicos</h2>
+            <span className="text-xs text-slate-500">Archivos compartidos</span>
           </div>
-          {data.payments.length === 0 && <p className="text-sm text-slate-500">No hay pagos asociados.</p>}
+          {data.documents.length === 0 && <p className="text-sm text-slate-500">No hay documentos disponibles.</p>}
           <ul className="space-y-3 text-sm">
-            {data.payments.map((payment) => (
-              <li key={payment.id} className="rounded-lg border border-slate-200 p-3 bg-slate-50/60 space-y-1">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-semibold text-primary">{payment.concepto}</p>
-                  <span className={`border px-3 py-1 rounded-full text-xs font-semibold ${getBadgeClass(payment.estado)}`}>
-                    {payment.estado}
-                  </span>
+            {data.documents.map((doc) => (
+              <li
+                key={doc.id}
+                className="rounded-lg border border-slate-200 p-3 bg-slate-50/60 flex items-center justify-between gap-3"
+              >
+                <div>
+                  <p className="font-semibold text-primary">{doc.titulo}</p>
+                  <p className="text-slate-600 text-xs">{doc.tipo}</p>
                 </div>
-                <p className="text-slate-600">Vence: {new Date(payment.fecha_vencimiento).toLocaleDateString()}</p>
-                {payment.fecha_pago && <p className="text-slate-600">Pagado: {new Date(payment.fecha_pago).toLocaleDateString()}</p>}
+                <span className="text-xs text-slate-500">{new Date(doc.creado_en).toLocaleDateString()}</span>
               </li>
             ))}
           </ul>
         </section>
       </div>
 
-      <section className="card shadow-sm">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="font-semibold text-lg text-primary">Documentos públicos</h2>
-          <span className="text-xs text-slate-500">Archivos compartidos</span>
-        </div>
-        {data.documents.length === 0 && <p className="text-sm text-slate-500">No hay documentos disponibles.</p>}
-        <ul className="space-y-3 text-sm">
-          {data.documents.map((doc) => (
-            <li key={doc.id} className="rounded-lg border border-slate-200 p-3 bg-slate-50/60 flex items-center justify-between gap-3">
-              <div>
-                <p className="font-semibold text-primary">{doc.titulo}</p>
-                <p className="text-slate-600 text-xs">{doc.tipo}</p>
-              </div>
-              <span className="text-xs text-slate-500">{new Date(doc.creado_en).toLocaleDateString()}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
+      <CitizenPaymentsSection
+        caseId={data.case.id}
+        paymentRequests={data.paymentRequests}
+        payments={data.payments}
+      />
+
     </div>
   );
 }

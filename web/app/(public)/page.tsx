@@ -3,6 +3,7 @@
 import { FormEvent, useState } from 'react';
 import { searchCase } from '@/lib/api';
 import type { CaseSearchResponse } from '@/lib/api';
+import { CitizenPaymentsSection } from './cases/[id]/payments-section';
 
 const badgeColors: Record<string, string> = {
   completado: 'bg-success/15 text-success border-success/30',
@@ -132,30 +133,13 @@ export default function HomePage() {
                 ))}
               </ul>
             </section>
-
-            <section className="card shadow-sm space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-lg text-primary">Pagos</h3>
-                <span className="text-xs text-slate-500">Visibles al ciudadano</span>
-              </div>
-              {data.payments.length === 0 && <p className="text-sm text-slate-500">No hay pagos.</p>}
-              <ul className="space-y-3 text-sm">
-                {data.payments.map((p) => (
-                  <li key={p.id} className="rounded-lg border border-slate-200 p-3 bg-slate-50/60 space-y-1">
-                    <div className="flex items-center justify-between">
-                      <p className="font-semibold text-primary">{p.concepto}</p>
-                      <span className={`border px-3 py-1 rounded-full text-xs font-semibold ${getBadgeClass(p.estado)}`}>
-                        {p.estado}
-                      </span>
-                    </div>
-                    <p className="text-slate-600">Monto: ${p.monto}</p>
-                    <p className="text-slate-600">Vence: {new Date(p.fecha_vencimiento).toLocaleDateString()}</p>
-                    {p.fecha_pago && <p className="text-slate-600">Pagado: {new Date(p.fecha_pago).toLocaleDateString()}</p>}
-                  </li>
-                ))}
-              </ul>
-            </section>
           </div>
+
+          <CitizenPaymentsSection
+            caseId={data.case.id}
+            paymentRequests={data.paymentRequests}
+            payments={data.payments}
+          />
 
           <section className="card shadow-sm">
             <div className="flex items-center justify-between mb-3">
