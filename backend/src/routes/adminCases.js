@@ -14,7 +14,6 @@ import {
 } from '../controllers/timelineController.js';
 import {
   listDocuments,
-  uploadDocument,
   updateDocument,
   deleteDocument
 } from '../controllers/documentsController.js';
@@ -52,7 +51,7 @@ router
 router
   .route('/cases/:id/documents')
   .get(authorize('admin', 'super_admin'), listDocuments)
-  .post(authorize('admin', 'super_admin'), uploadDocument);
+  //.post(authorize('admin', 'super_admin'), uploadDocument);
 
 router
   .route('/cases/:id/documents/:documentId')
