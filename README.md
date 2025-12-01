@@ -32,10 +32,26 @@ Estructura base para un sistema de gestión de denuncias con backend en Node.js/
    npm run dev
    ```
 
+### Pagos
+- Nuevos modelos gestionados por Prisma: `BankAccount`, `CryptoWallet`, `PaymentRequest` y `Payment`.
+- Endpoints admin para pagos:
+  - `GET /api/admin/payment-requests` (listado global)
+  - `POST /api/admin/payment-requests` (creación global vinculada a un caso)
+  - `GET /api/admin/payments` (listado global)
+  - `POST /api/admin/payments` (registro de pago global)
+  - `GET /api/admin/cases/:caseId/payments`
+  - `POST /api/admin/cases/:caseId/payment-requests`
+  - `PATCH /api/admin/payment-requests/:id`
+  - `POST /api/admin/cases/:caseId/payments`
+  - `PATCH /api/admin/payments/:id`
+- Métodos auxiliares: `GET /api/admin/bank-accounts`, `GET /api/admin/crypto-wallets`
+- Cada vez que cambies el esquema de Prisma, ejecuta `npm run prisma:migrate` (o `npx prisma migrate dev --name <cambio>`) para aplicar las migraciones y actualizar la base de datos local.
+
 ## Frontend Next.js (`web/`)
 - Next.js 14 con App Router, TypeScript y Tailwind CSS.
 - Rutas públicas: `/` (búsqueda de expediente) y `/cases/[id]` (detalle por código de seguimiento), organizadas en `app/(public)` con el layout institucional (`app/(public)/layout.tsx`).
 - Rutas admin: `/admin/login`, `/admin/cases`, `/admin/cases/new`, `/admin/cases/[id]` bajo `app/(admin)/admin` con sidebar y cabecera en `app/(admin)/admin/layout.tsx`.
+- Nueva vista `/admin/payments` para que los administradores consulten todas las solicitudes y pagos, creen nuevas solicitudes asociadas a un caso, actualicen estados, asignen cuentas bancarias o wallets cripto y visualicen códigos QR de pago.
 - Cliente API en `web/lib/api.ts` que consume el backend Express (puedes ajustar la URL con `NEXT_PUBLIC_API_BASE_URL`).
 - `next.config.mjs` incluye un rewrite para apuntar `/api/*` al backend en `localhost:4000` por defecto.
 

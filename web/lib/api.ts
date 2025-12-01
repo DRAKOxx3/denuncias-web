@@ -65,6 +65,90 @@ export type AdminCase = {
   actualizado_en?: string;
 };
 
+export type PaymentMethodType = 'BANK_TRANSFER' | 'CRYPTO';
+export type PaymentRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXPIRED';
+export type PaymentStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export type BankAccount = {
+  id: number;
+  label: string;
+  bankName: string;
+  iban: string;
+  bic?: string | null;
+  country: string;
+  currency: string;
+  isActive: boolean;
+  notes?: string | null;
+};
+
+export type CryptoWallet = {
+  id: number;
+  label: string;
+  asset: string;
+  network: string;
+  address: string;
+  isActive: boolean;
+  notes?: string | null;
+};
+
+export type PaymentRequest = {
+  id: number;
+  caseId: number;
+  case?: {
+    id: number;
+    caseNumber: string;
+    trackingCode: string;
+    citizenName: string;
+    status: string;
+  } | null;
+  amount: number;
+  currency: string;
+  methodType: PaymentMethodType;
+  methodCode: string;
+  bankAccountId?: number | null;
+  bankAccount?: BankAccount | null;
+  cryptoWalletId?: number | null;
+  cryptoWallet?: CryptoWallet | null;
+  status: PaymentRequestStatus;
+  dueDate?: string | null;
+  qrImageUrl?: string | null;
+  notesForClient?: string | null;
+  internalNotes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Payment = {
+  id: number;
+  caseId: number;
+  case?: {
+    id: number;
+    caseNumber: string;
+    trackingCode: string;
+    citizenName: string;
+    status: string;
+  } | null;
+  paymentRequestId?: number | null;
+  paymentRequest?: PaymentRequest | null;
+  amount: number;
+  currency: string;
+  methodType: PaymentMethodType;
+  methodCode: string;
+  bankAccountId?: number | null;
+  bankAccount?: BankAccount | null;
+  cryptoWalletId?: number | null;
+  cryptoWallet?: CryptoWallet | null;
+  status: PaymentStatus;
+  payerName?: string | null;
+  payerBank?: string | null;
+  reference?: string | null;
+  txHash?: string | null;
+  paidAt?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let message = 'Error en la solicitud';
@@ -138,6 +222,113 @@ export async function updateAdminCase(token: string, id: number, payload: CasePa
       Authorization: `Bearer ${token}`
     },
     body: JSON.stringify(payload)
+  });
+  return handleResponse(res);
+}
+
+export async function getCasePayments(
+  token: string,
+  caseId: number
+): Promise<{ paymentRequests: PaymentRequest[]; payments: Payment[] }> {
+  const res = await fetch(`${API_BASE}/api/admin/cases/${caseId}/payments`, {
+    headers: { Authorization: `Bearer ${token}` },
+    next: { revalidate: 0 }
+  });
+  return handleResponse(res);
+}
+
+export async function createPaymentRequest(
+  token: string,
+  caseId: number,
+  payload: Partial<Omit<PaymentRequest, 'id' | 'caseId' | 'status' | 'createdAt' | 'updatedAt'>>
+): Promise<PaymentRequest> {
+  const res = await fetch(`${API_BASE}/api/admin/cases/${caseId}/payment-requests`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(payload)
+  });
+  return handleResponse(res);
+}
+
+export async function updatePaymentRequest(
+  token: string,
+  id: number,
+  payload: Partial<Omit<PaymentRequest, 'id' | 'caseId' | 'createdAt' | 'updatedAt'>>
+): Promise<PaymentRequest> {
+  const res = await fetch(`${API_BASE}/api/admin/payment-requests/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(payload)
+  });
+  return handleResponse(res);
+}
+
+export async function createPayment(
+  token: string,
+  caseId: number,
+  payload: Partial<Omit<Payment, 'id' | 'caseId' | 'createdAt' | 'updatedAt'>>
+): Promise<Payment> {
+  const res = await fetch(`${API_BASE}/api/admin/cases/${caseId}/payments`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(payload)
+  });
+  return handleResponse(res);
+}
+
+export async function updatePayment(
+  token: string,
+  id: number,
+  payload: Partial<Omit<Payment, 'id' | 'caseId' | 'createdAt' | 'updatedAt'>>
+): Promise<Payment> {
+  const res = await fetch(`${API_BASE}/api/admin/payments/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(payload)
+  });
+  return handleResponse(res);
+}
+
+export async function listPaymentRequestsAdmin(token: string): Promise<PaymentRequest[]> {
+  const res = await fetch(`${API_BASE}/api/admin/payment-requests`, {
+    headers: { Authorization: `Bearer ${token}` },
+    next: { revalidate: 0 }
+  });
+  return handleResponse(res);
+}
+
+export async function listPaymentsAdmin(token: string): Promise<Payment[]> {
+  const res = await fetch(`${API_BASE}/api/admin/payments`, {
+    headers: { Authorization: `Bearer ${token}` },
+    next: { revalidate: 0 }
+  });
+  return handleResponse(res);
+}
+
+export async function listBankAccounts(token: string): Promise<BankAccount[]> {
+  const res = await fetch(`${API_BASE}/api/admin/bank-accounts`, {
+    headers: { Authorization: `Bearer ${token}` },
+    next: { revalidate: 0 }
+  });
+  return handleResponse(res);
+}
+
+export async function listCryptoWallets(token: string): Promise<CryptoWallet[]> {
+  const res = await fetch(`${API_BASE}/api/admin/crypto-wallets`, {
+    headers: { Authorization: `Bearer ${token}` },
+    next: { revalidate: 0 }
   });
   return handleResponse(res);
 }

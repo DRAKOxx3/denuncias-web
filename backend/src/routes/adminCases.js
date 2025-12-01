@@ -14,15 +14,10 @@ import {
 } from '../controllers/timelineController.js';
 import {
   listDocuments,
+  uploadDocument,
   updateDocument,
   deleteDocument
 } from '../controllers/documentsController.js';
-import {
-  listPayments,
-  createPayment,
-  updatePayment,
-  deletePayment
-} from '../controllers/paymentsController.js';
 
 const router = Router();
 
@@ -51,21 +46,11 @@ router
 router
   .route('/cases/:id/documents')
   .get(authorize('admin', 'super_admin'), listDocuments)
-  //.post(authorize('admin', 'super_admin'), uploadDocument);
+  .post(authorize('admin', 'super_admin'), uploadDocument);
 
 router
   .route('/cases/:id/documents/:documentId')
   .patch(authorize('admin', 'super_admin'), updateDocument)
   .delete(authorize('admin', 'super_admin'), deleteDocument);
-
-router
-  .route('/cases/:id/payments')
-  .get(authorize('admin', 'super_admin'), listPayments)
-  .post(authorize('admin', 'super_admin'), createPayment);
-
-router
-  .route('/cases/:id/payments/:paymentId')
-  .patch(authorize('admin', 'super_admin'), updatePayment)
-  .delete(authorize('admin', 'super_admin'), deletePayment);
 
 export default router;

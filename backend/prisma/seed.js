@@ -7,6 +7,9 @@ async function main() {
   await prisma.timelineEvent.deleteMany();
   await prisma.document.deleteMany();
   await prisma.payment.deleteMany();
+  await prisma.paymentRequest.deleteMany();
+  await prisma.bankAccount.deleteMany();
+  await prisma.cryptoWallet.deleteMany();
   await prisma.case.deleteMany();
   await prisma.user.deleteMany();
 
@@ -16,6 +19,50 @@ async function main() {
       email: 'admin@example.com',
       passwordHash: await bcrypt.hash('admin123', 10),
       role: 'super_admin'
+    }
+  });
+
+  const bankAccount = await prisma.bankAccount.create({
+    data: {
+      label: 'Cuenta EUR Principal',
+      bankName: 'Banco Nacional',
+      iban: 'ES9820385778983000760236',
+      bic: 'BNPAESMM',
+      country: 'ES',
+      currency: 'EUR',
+      notes: 'Cuenta SEPA para pagos locales'
+    }
+  });
+
+  const altBankAccount = await prisma.bankAccount.create({
+    data: {
+      label: 'Cuenta EUR Secundaria',
+      bankName: 'Banco Regional',
+      iban: 'ES1300190020961234567890',
+      bic: 'REGNESMM',
+      country: 'ES',
+      currency: 'EUR',
+      notes: 'Cuenta de respaldo'
+    }
+  });
+
+  const usdtWallet = await prisma.cryptoWallet.create({
+    data: {
+      label: 'USDT TRC20 Principal',
+      asset: 'USDT',
+      network: 'TRC20',
+      address: 'TK8C2pQpExampleTRC20Wallet',
+      notes: 'Solo USDT TRC20'
+    }
+  });
+
+  const btcWallet = await prisma.cryptoWallet.create({
+    data: {
+      label: 'BTC Legacy',
+      asset: 'BTC',
+      network: 'Bitcoin',
+      address: 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080',
+      notes: 'Dirección BTC principal'
     }
   });
 
@@ -51,22 +98,12 @@ async function main() {
             isPublic: true
           }
         ]
-      },
-      payments: {
-        create: [
-          {
-            concept: 'Tasa administrativa',
-            amount: 50,
-            status: 'pendiente',
-            dueDate: new Date('2024-02-01')
-          }
-        ]
       }
     },
     include: { timelineEvents: true }
   });
 
-  await prisma.case.create({
+  const caseTwo = await prisma.case.create({
     data: {
       caseNumber: 'EXP-2024-0002',
       trackingCode: 'XYZ789',
@@ -87,7 +124,74 @@ async function main() {
     }
   });
 
-  console.log('Seed data created', { admin: admin.email, caseOne: caseOne.caseNumber });
+  const paymentRequestOne = await prisma.paymentRequest.create({
+    data: {
+      caseId: caseOne.id,
+      amount: 50,
+      currency: 'EUR',
+      methodType: 'BANK_TRANSFER',
+      methodCode: 'SEPA',
+      bankAccountId: bankAccount.id,
+      dueDate: new Date('2024-02-01'),
+      notesForClient: 'Use la referencia enviada por email',
+      internalNotes: 'Prioritario'
+    }
+  });
+
+  const paymentRequestTwo = await prisma.paymentRequest.create({
+    data: {
+      caseId: caseTwo.id,
+      amount: 120.5,
+      currency: 'EUR',
+      methodType: 'CRYPTO',
+      methodCode: 'USDT_TRC20',
+      cryptoWalletId: usdtWallet.id,
+      dueDate: new Date('2024-04-10'),
+      qrImageUrl: 'https://example.com/qr/usdt-trc20.png',
+      notesForClient: 'Solo USDT en red TRC20',
+      internalNotes: 'Verificar al recibir'
+    }
+  });
+
+  await prisma.payment.create({
+    data: {
+      caseId: caseOne.id,
+      paymentRequestId: paymentRequestOne.id,
+      amount: 50,
+      currency: 'EUR',
+      methodType: 'BANK_TRANSFER',
+      methodCode: 'SEPA',
+      bankAccountId: bankAccount.id,
+      status: 'APPROVED',
+      payerName: 'Juan Pérez',
+      payerBank: 'Banco del Pagador',
+      reference: 'REF-0001',
+      paidAt: new Date('2024-01-28'),
+      notes: 'Pago confirmado'
+    }
+  });
+
+  await prisma.payment.create({
+    data: {
+      caseId: caseTwo.id,
+      paymentRequestId: paymentRequestTwo.id,
+      amount: 120.5,
+      currency: 'EUR',
+      methodType: 'CRYPTO',
+      methodCode: 'USDT_TRC20',
+      cryptoWalletId: usdtWallet.id,
+      status: 'PENDING',
+      payerName: 'Maria Gomez',
+      notes: 'Esperando confirmación en cadena'
+    }
+  });
+
+  console.log('Seed data created', {
+    admin: admin.email,
+    cases: [caseOne.caseNumber, caseTwo.caseNumber],
+    bankAccounts: [bankAccount.label, altBankAccount.label],
+    wallets: [usdtWallet.label, btcWallet.label]
+  });
 }
 
 main()
