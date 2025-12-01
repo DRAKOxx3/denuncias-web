@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import {
-  listAdminCases,
-  listBankAccounts,
-  listCryptoWallets,
+  listPaymentResources,
   type AdminCase,
   type BankAccount,
   type CryptoWallet
@@ -17,7 +15,7 @@ export function usePaymentResources() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const reload = () => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
     if (!token) {
       setError('Necesitas iniciar sesión para gestionar pagos.');
@@ -27,21 +25,22 @@ export function usePaymentResources() {
     setLoading(true);
     setError(null);
 
-    Promise.all([
-      listAdminCases(token),
-      listBankAccounts(token),
-      listCryptoWallets(token)
-    ])
-      .then(([casesResponse, bankResponse, walletResponse]) => {
-        setCases(casesResponse || []);
-        setBankAccounts(bankResponse || []);
-        setWallets(walletResponse || []);
+    listPaymentResources(token)
+      .then((payload) => {
+        setCases(payload.cases || []);
+        setBankAccounts(payload.bankAccounts || []);
+        setWallets(payload.cryptoWallets || []);
       })
       .catch((err: any) => {
         setError(err?.message || 'No se pudieron cargar los recursos de pagos.');
       })
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { cases, bankAccounts, wallets, loading, error };
+  return { cases, bankAccounts, wallets, loading, error, reload };
 }

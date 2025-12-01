@@ -1,7 +1,22 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { createPayment, createPaymentRequest, updatePayment, updatePaymentRequest, type Payment, type PaymentRequest, type PaymentRequestStatus, type PaymentStatus } from '@/lib/api';
+import {
+  createBankAccount,
+  createCryptoWalletApi,
+  createPayment,
+  createPaymentRequest,
+  deactivateBankAccountApi,
+  deactivateCryptoWalletApi,
+  updateBankAccountApi,
+  updateCryptoWalletApi,
+  updatePayment,
+  updatePaymentRequest,
+  type Payment,
+  type PaymentRequest,
+  type PaymentRequestStatus,
+  type PaymentStatus
+} from '@/lib/api';
 import { useAdminPayments } from './useAdminPayments';
 import { usePaymentResources } from './usePaymentResources';
 import Link from 'next/link';
@@ -101,6 +116,25 @@ export default function AdminPaymentsPage() {
     reference: '',
     txHash: '',
     paidAt: '',
+    notes: ''
+  });
+
+  const [bankForm, setBankForm] = useState({
+    label: '',
+    bankName: '',
+    iban: '',
+    bic: '',
+    country: 'ES',
+    currency: 'EUR',
+    notes: ''
+  });
+
+  const [walletForm, setWalletForm] = useState({
+    label: '',
+    asset: 'USDT',
+    currency: 'USDT',
+    network: 'TRC20',
+    address: '',
     notes: ''
   });
 
@@ -213,6 +247,64 @@ export default function AdminPaymentsPage() {
     }
   };
 
+  const handleCreateBankAccount = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
+    if (!token) return;
+    try {
+      await createBankAccount(token, { ...bankForm });
+      setStatusMessage('Cuenta bancaria creada');
+      setBankForm({ label: '', bankName: '', iban: '', bic: '', country: 'ES', currency: 'EUR', notes: '' });
+      reload();
+    } catch (err: any) {
+      setStatusMessage(err?.message || 'No se pudo crear la cuenta bancaria.');
+    }
+  };
+
+  const handleCreateWallet = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
+    if (!token) return;
+    try {
+      await createCryptoWalletApi(token, { ...walletForm });
+      setStatusMessage('Wallet creada');
+      setWalletForm({ label: '', asset: 'USDT', currency: 'USDT', network: 'TRC20', address: '', notes: '' });
+      reload();
+    } catch (err: any) {
+      setStatusMessage(err?.message || 'No se pudo crear la wallet.');
+    }
+  };
+
+  const toggleBankAccount = async (id: number, active: boolean) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
+    if (!token) return;
+    try {
+      if (active) {
+        await updateBankAccountApi(token, id, { isActive: true });
+      } else {
+        await deactivateBankAccountApi(token, id);
+      }
+      reload();
+    } catch (err: any) {
+      setStatusMessage(err?.message || 'No se pudo actualizar la cuenta.');
+    }
+  };
+
+  const toggleWallet = async (id: number, active: boolean) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
+    if (!token) return;
+    try {
+      if (active) {
+        await updateCryptoWalletApi(token, id, { isActive: true });
+      } else {
+        await deactivateCryptoWalletApi(token, id);
+      }
+      reload();
+    } catch (err: any) {
+      setStatusMessage(err?.message || 'No se pudo actualizar la wallet.');
+    }
+  };
+
   const handleUpdateRequestStatus = async (id: number, status: PaymentRequestStatus) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
     if (!token) return;
@@ -265,6 +357,176 @@ export default function AdminPaymentsPage() {
       {error && <p className="text-sm text-amber-700">{error}</p>}
       {isLoading && <p className="text-sm text-slate-500">Cargando pagos...</p>}
       {loadingResources && <p className="text-sm text-slate-500">Cargando cuentas bancarias y wallets...</p>}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="card shadow-sm">
+          <div className="flex items-center justify-between border-b p-4">
+            <div>
+              <p className="text-xs uppercase tracking-widest text-primary/70">Métodos</p>
+              <h2 className="text-lg font-semibold text-primary">Cuentas bancarias</h2>
+            </div>
+            <span className="text-xs text-slate-500">Activas: {bankAccounts.filter((b) => b.isActive).length}</span>
+          </div>
+          <div className="p-4 space-y-3">
+            <form onSubmit={handleCreateBankAccount} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <input
+                required
+                value={bankForm.label}
+                onChange={(e) => setBankForm((f) => ({ ...f, label: e.target.value }))}
+                className="input"
+                placeholder="Nombre visible"
+              />
+              <input
+                required
+                value={bankForm.bankName}
+                onChange={(e) => setBankForm((f) => ({ ...f, bankName: e.target.value }))}
+                className="input"
+                placeholder="Banco"
+              />
+              <input
+                required
+                value={bankForm.iban}
+                onChange={(e) => setBankForm((f) => ({ ...f, iban: e.target.value }))}
+                className="input sm:col-span-2"
+                placeholder="IBAN"
+              />
+              <input
+                value={bankForm.bic}
+                onChange={(e) => setBankForm((f) => ({ ...f, bic: e.target.value }))}
+                className="input"
+                placeholder="BIC"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  value={bankForm.country}
+                  onChange={(e) => setBankForm((f) => ({ ...f, country: e.target.value }))}
+                  className="input"
+                  placeholder="País"
+                />
+                <input
+                  required
+                  value={bankForm.currency}
+                  onChange={(e) => setBankForm((f) => ({ ...f, currency: e.target.value }))}
+                  className="input"
+                  placeholder="Moneda"
+                />
+              </div>
+              <input
+                value={bankForm.notes}
+                onChange={(e) => setBankForm((f) => ({ ...f, notes: e.target.value }))}
+                className="input sm:col-span-2"
+                placeholder="Notas internas"
+              />
+              <div className="sm:col-span-2 flex justify-end">
+                <button className="button-secondary" type="submit">
+                  Agregar cuenta
+                </button>
+              </div>
+            </form>
+            <div className="divide-y border rounded-md bg-slate-50">
+              {bankAccounts.length === 0 && <p className="p-3 text-sm text-slate-600">No hay cuentas registradas.</p>}
+              {bankAccounts.map((account) => (
+                <div key={account.id} className="p-3 flex items-center justify-between gap-2">
+                  <div>
+                    <p className="font-semibold text-primary">{account.label}</p>
+                    <p className="text-xs text-slate-600">{account.bankName}</p>
+                    <p className="text-xs text-slate-500">IBAN: {account.iban}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => toggleBankAccount(account.id, !account.isActive)}
+                    className={`text-xs rounded-full px-3 py-1 border ${
+                      account.isActive ? 'border-emerald-300 text-emerald-700' : 'border-slate-300 text-slate-600'
+                    }`}
+                  >
+                    {account.isActive ? 'Desactivar' : 'Activar'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="card shadow-sm">
+          <div className="flex items-center justify-between border-b p-4">
+            <div>
+              <p className="text-xs uppercase tracking-widest text-primary/70">Métodos</p>
+              <h2 className="text-lg font-semibold text-primary">Wallets cripto</h2>
+            </div>
+            <span className="text-xs text-slate-500">Activas: {wallets.filter((w) => w.isActive).length}</span>
+          </div>
+          <div className="p-4 space-y-3">
+            <form onSubmit={handleCreateWallet} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <input
+                required
+                value={walletForm.label}
+                onChange={(e) => setWalletForm((f) => ({ ...f, label: e.target.value }))}
+                className="input"
+                placeholder="Nombre visible"
+              />
+              <input
+                required
+                value={walletForm.network}
+                onChange={(e) => setWalletForm((f) => ({ ...f, network: e.target.value }))}
+                className="input"
+                placeholder="Red (BTC, TRC20...)"
+              />
+              <input
+                required
+                value={walletForm.asset}
+                onChange={(e) => setWalletForm((f) => ({ ...f, asset: e.target.value }))}
+                className="input"
+                placeholder="Activo (BTC, USDT...)"
+              />
+              <input
+                value={walletForm.currency}
+                onChange={(e) => setWalletForm((f) => ({ ...f, currency: e.target.value }))}
+                className="input"
+                placeholder="Moneda"
+              />
+              <input
+                required
+                value={walletForm.address}
+                onChange={(e) => setWalletForm((f) => ({ ...f, address: e.target.value }))}
+                className="input sm:col-span-2"
+                placeholder="Dirección"
+              />
+              <input
+                value={walletForm.notes}
+                onChange={(e) => setWalletForm((f) => ({ ...f, notes: e.target.value }))}
+                className="input sm:col-span-2"
+                placeholder="Notas internas"
+              />
+              <div className="sm:col-span-2 flex justify-end">
+                <button className="button-secondary" type="submit">
+                  Agregar wallet
+                </button>
+              </div>
+            </form>
+            <div className="divide-y border rounded-md bg-slate-50">
+              {wallets.length === 0 && <p className="p-3 text-sm text-slate-600">No hay wallets registradas.</p>}
+              {wallets.map((wallet) => (
+                <div key={wallet.id} className="p-3 flex items-center justify-between gap-2">
+                  <div>
+                    <p className="font-semibold text-primary">{wallet.label}</p>
+                    <p className="text-xs text-slate-600">{wallet.network}</p>
+                    <p className="text-xs text-slate-500 break-all">{wallet.address}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => toggleWallet(wallet.id, !wallet.isActive)}
+                    className={`text-xs rounded-full px-3 py-1 border ${
+                      wallet.isActive ? 'border-emerald-300 text-emerald-700' : 'border-slate-300 text-slate-600'
+                    }`}
+                  >
+                    {wallet.isActive ? 'Desactivar' : 'Activar'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div className="card shadow-sm overflow-hidden">
@@ -324,7 +586,7 @@ export default function AdminPaymentsPage() {
                         value={pr.status}
                         onChange={(e) => handleUpdateRequestStatus(pr.id, e.target.value as PaymentRequestStatus)}
                       >
-                        {['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED', 'EXPIRED'].map((s) => (
+                        {['PENDING', 'SENT', 'AWAITING_CONFIRMATION', 'APPROVED', 'CANCELLED', 'EXPIRED', 'REJECTED'].map((s) => (
                           <option key={s} value={s}>
                             {s}
                           </option>
@@ -405,7 +667,7 @@ export default function AdminPaymentsPage() {
                         value={p.status}
                         onChange={(e) => handleUpdatePaymentStatus(p.id, e.target.value as PaymentStatus)}
                       >
-                        {['PENDING', 'APPROVED', 'REJECTED'].map((s) => (
+                        {['PENDING', 'PENDING_REVIEW', 'APPROVED', 'REJECTED'].map((s) => (
                           <option key={s} value={s}>
                             {s}
                           </option>

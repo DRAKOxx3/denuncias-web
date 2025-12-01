@@ -45,7 +45,10 @@ Estructura base para un sistema de gestión de denuncias con backend en Node.js/
   - `PATCH /api/admin/payment-requests/:id`
   - `POST /api/admin/cases/:caseId/payments`
   - `PATCH /api/admin/payments/:id`
-- Métodos auxiliares: `GET /api/admin/bank-accounts`, `GET /api/admin/crypto-wallets`
+- Métodos auxiliares: `GET /api/admin/bank-accounts`, `GET /api/admin/crypto-wallets`, `GET /api/admin/payment-resources`
+- CRUD de métodos de cobro:
+  - `POST /api/admin/bank-accounts`, `PUT /api/admin/bank-accounts/:id`, `DELETE /api/admin/bank-accounts/:id`
+  - `POST /api/admin/crypto-wallets`, `PUT /api/admin/crypto-wallets/:id`, `DELETE /api/admin/crypto-wallets/:id`
 - Cada vez que cambies el esquema de Prisma, ejecuta `npm run prisma:migrate` (o `npx prisma migrate dev --name <cambio>`) para aplicar las migraciones y actualizar la base de datos local.
 - Si no ves cuentas bancarias o wallets en el panel `/admin/payments`, ejecuta `npm run prisma:seed` tras migrar para volver a cargar los datos de ejemplo (cuentas SEPA y wallets cripto).
 

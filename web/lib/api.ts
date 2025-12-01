@@ -66,8 +66,16 @@ export type AdminCase = {
 };
 
 export type PaymentMethodType = 'BANK_TRANSFER' | 'CRYPTO';
-export type PaymentRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXPIRED';
-export type PaymentStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+export type PaymentRequestStatus =
+  | 'PENDING'
+  | 'SENT'
+  | 'AWAITING_CONFIRMATION'
+  | 'APPROVED'
+  | 'PAID'
+  | 'REJECTED'
+  | 'CANCELLED'
+  | 'EXPIRED';
+export type PaymentStatus = 'PENDING' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED';
 
 export type BankAccount = {
   id: number;
@@ -79,16 +87,21 @@ export type BankAccount = {
   currency: string;
   isActive: boolean;
   notes?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type CryptoWallet = {
   id: number;
   label: string;
   asset: string;
+  currency?: string | null;
   network: string;
   address: string;
   isActive: boolean;
   notes?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type PaymentRequest = {
@@ -142,8 +155,10 @@ export type Payment = {
   payerName?: string | null;
   payerBank?: string | null;
   reference?: string | null;
+  bankReference?: string | null;
   txHash?: string | null;
   paidAt?: string | null;
+  receiptDocumentId?: number | null;
   notes?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -329,6 +344,98 @@ export async function listCryptoWallets(token: string): Promise<CryptoWallet[]> 
   const res = await fetch(`${API_BASE}/api/admin/crypto-wallets`, {
     headers: { Authorization: `Bearer ${token}` },
     next: { revalidate: 0 }
+  });
+  return handleResponse(res);
+}
+
+export type PaymentResources = {
+  bankAccounts: BankAccount[];
+  cryptoWallets: CryptoWallet[];
+  cases: { id: number; caseNumber: string; citizenName: string }[];
+};
+
+export async function listPaymentResources(token: string): Promise<PaymentResources> {
+  const res = await fetch(`${API_BASE}/api/admin/payment-resources`, {
+    headers: { Authorization: `Bearer ${token}` },
+    next: { revalidate: 0 }
+  });
+  return handleResponse(res);
+}
+
+export async function createBankAccount(
+  token: string,
+  payload: Omit<BankAccount, 'id' | 'isActive'> & { isActive?: boolean }
+): Promise<BankAccount> {
+  const res = await fetch(`${API_BASE}/api/admin/bank-accounts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(payload)
+  });
+  return handleResponse(res);
+}
+
+export async function updateBankAccountApi(
+  token: string,
+  id: number,
+  payload: Partial<BankAccount>
+): Promise<BankAccount> {
+  const res = await fetch(`${API_BASE}/api/admin/bank-accounts/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(payload)
+  });
+  return handleResponse(res);
+}
+
+export async function deactivateBankAccountApi(token: string, id: number): Promise<BankAccount> {
+  const res = await fetch(`${API_BASE}/api/admin/bank-accounts/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  return handleResponse(res);
+}
+
+export async function createCryptoWalletApi(
+  token: string,
+  payload: Omit<CryptoWallet, 'id' | 'isActive'> & { isActive?: boolean }
+): Promise<CryptoWallet> {
+  const res = await fetch(`${API_BASE}/api/admin/crypto-wallets`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(payload)
+  });
+  return handleResponse(res);
+}
+
+export async function updateCryptoWalletApi(
+  token: string,
+  id: number,
+  payload: Partial<CryptoWallet>
+): Promise<CryptoWallet> {
+  const res = await fetch(`${API_BASE}/api/admin/crypto-wallets/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(payload)
+  });
+  return handleResponse(res);
+}
+
+export async function deactivateCryptoWalletApi(token: string, id: number): Promise<CryptoWallet> {
+  const res = await fetch(`${API_BASE}/api/admin/crypto-wallets/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
   });
   return handleResponse(res);
 }

@@ -65,6 +65,8 @@ model BankAccount {
   currency  String
   isActive  Boolean   @default(true)
   notes     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   paymentRequests PaymentRequest[] @relation("PaymentRequestBankAccount")
   payments        Payment[]        @relation("PaymentBankAccount")
@@ -74,10 +76,13 @@ model CryptoWallet {
   id              Int             @id @default(autoincrement())
   label           String
   asset           String
+  currency        String?
   network         String
   address         String          @unique
   isActive        Boolean         @default(true)
   notes           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   paymentRequests PaymentRequest[] @relation("PaymentRequestWallet")
   payments        Payment[]        @relation("PaymentWallet")
@@ -138,8 +143,12 @@ model Payment {
   payerName        String?
   payerBank        String?
   reference        String?
+  bankReference    String?
   txHash           String?
   paidAt           DateTime?
+
+  receiptDocumentId Int?
+  receiptDocument   Document? @relation("PaymentReceipt", fields: [receiptDocumentId], references: [id])
 
   notes            String?
 

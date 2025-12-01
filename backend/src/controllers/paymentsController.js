@@ -1,6 +1,12 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 
+const mapAdminCaseSummary = (item) => ({
+  id: item.id,
+  caseNumber: item.caseNumber,
+  citizenName: item.citizenName
+});
+
 export const getCasePayments = async (req, res) => {
   const caseId = Number(req.params.caseId);
 
@@ -179,6 +185,7 @@ export const createPayment = async (req, res) => {
     payerName,
     payerBank,
     reference,
+    bankReference,
     txHash,
     paidAt,
     notes
@@ -213,6 +220,7 @@ export const createPayment = async (req, res) => {
         payerName: payerName || null,
         payerBank: payerBank || null,
         reference: reference || null,
+        bankReference: bankReference || null,
         txHash: txHash || null,
         paidAt: paidAt ? new Date(paidAt) : null,
         notes: notes || null
@@ -248,7 +256,7 @@ export const createPaymentGlobal = async (req, res) => {
 
 export const updatePayment = async (req, res) => {
   const id = Number(req.params.id);
-  const { status, payerName, payerBank, reference, txHash, paidAt, notes } = req.body || {};
+  const { status, payerName, payerBank, reference, bankReference, txHash, paidAt, notes } = req.body || {};
 
   try {
     const existing = await prisma.payment.findUnique({ where: { id }, include: { paymentRequest: true } });
@@ -261,6 +269,7 @@ export const updatePayment = async (req, res) => {
         payerName: payerName !== undefined ? payerName : existing.payerName,
         payerBank: payerBank !== undefined ? payerBank : existing.payerBank,
         reference: reference !== undefined ? reference : existing.reference,
+        bankReference: bankReference !== undefined ? bankReference : existing.bankReference,
         txHash: txHash !== undefined ? txHash : existing.txHash,
         paidAt: paidAt !== undefined ? (paidAt ? new Date(paidAt) : null) : existing.paidAt,
         notes: notes !== undefined ? notes : existing.notes
@@ -303,5 +312,163 @@ export const listCryptoWallets = async (_req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Error al listar wallets.' });
+  }
+};
+
+export const listPaymentResources = async (_req, res) => {
+  try {
+    const [bankAccounts, cryptoWallets, cases] = await Promise.all([
+      prisma.bankAccount.findMany({ orderBy: { label: 'asc' } }),
+      prisma.cryptoWallet.findMany({ orderBy: { label: 'asc' } }),
+      prisma.case.findMany({
+        select: { id: true, caseNumber: true, citizenName: true },
+        orderBy: { createdAt: 'desc' }
+      })
+    ]);
+
+    return res.json({
+      bankAccounts,
+      cryptoWallets,
+      cases: cases.map(mapAdminCaseSummary)
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al cargar recursos de pagos.' });
+  }
+};
+
+export const createBankAccount = async (req, res) => {
+  const { label, bankName, iban, bic, country, currency, notes } = req.body || {};
+
+  if (!label || !bankName || !iban || !currency) {
+    return res.status(400).json({ message: 'label, bankName, iban y currency son obligatorios.' });
+  }
+
+  try {
+    const created = await prisma.bankAccount.create({
+      data: {
+        label,
+        bankName,
+        iban,
+        bic: bic || null,
+        country: country || 'ES',
+        currency,
+        notes: notes || null
+      }
+    });
+    return res.status(201).json(created);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al crear la cuenta bancaria.' });
+  }
+};
+
+export const updateBankAccount = async (req, res) => {
+  const id = Number(req.params.id);
+  const { label, bankName, iban, bic, country, currency, notes, isActive } = req.body || {};
+
+  try {
+    const existing = await prisma.bankAccount.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ message: 'Cuenta bancaria no encontrada' });
+
+    const updated = await prisma.bankAccount.update({
+      where: { id },
+      data: {
+        label: label ?? existing.label,
+        bankName: bankName ?? existing.bankName,
+        iban: iban ?? existing.iban,
+        bic: bic ?? existing.bic,
+        country: country ?? existing.country,
+        currency: currency ?? existing.currency,
+        notes: notes ?? existing.notes,
+        isActive: isActive ?? existing.isActive
+      }
+    });
+
+    return res.json(updated);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al actualizar la cuenta bancaria.' });
+  }
+};
+
+export const deactivateBankAccount = async (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    const existing = await prisma.bankAccount.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ message: 'Cuenta bancaria no encontrada' });
+
+    const updated = await prisma.bankAccount.update({ where: { id }, data: { isActive: false } });
+    return res.json(updated);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al desactivar la cuenta bancaria.' });
+  }
+};
+
+export const createCryptoWallet = async (req, res) => {
+  const { label, asset, network, address, notes, currency, isActive } = req.body || {};
+
+  if (!label || !network || !address) {
+    return res.status(400).json({ message: 'label, network y address son obligatorios.' });
+  }
+
+  try {
+    const created = await prisma.cryptoWallet.create({
+      data: {
+        label,
+        asset: asset || currency || 'CRYPTO',
+        network,
+        address,
+        notes: notes || null,
+        isActive: isActive ?? true,
+        currency: currency || asset || 'CRYPTO'
+      }
+    });
+    return res.status(201).json(created);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al crear la wallet.' });
+  }
+};
+
+export const updateCryptoWallet = async (req, res) => {
+  const id = Number(req.params.id);
+  const { label, asset, network, address, notes, currency, isActive } = req.body || {};
+
+  try {
+    const existing = await prisma.cryptoWallet.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ message: 'Wallet no encontrada' });
+
+    const updated = await prisma.cryptoWallet.update({
+      where: { id },
+      data: {
+        label: label ?? existing.label,
+        asset: asset ?? existing.asset,
+        currency: currency ?? existing.currency,
+        network: network ?? existing.network,
+        address: address ?? existing.address,
+        notes: notes ?? existing.notes,
+        isActive: isActive ?? existing.isActive
+      }
+    });
+    return res.json(updated);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al actualizar la wallet.' });
+  }
+};
+
+export const deactivateCryptoWallet = async (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    const existing = await prisma.cryptoWallet.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ message: 'Wallet no encontrada' });
+
+    const updated = await prisma.cryptoWallet.update({ where: { id }, data: { isActive: false } });
+    return res.json(updated);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al desactivar la wallet.' });
   }
 };
