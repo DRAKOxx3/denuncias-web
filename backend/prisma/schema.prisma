@@ -8,30 +8,30 @@ datasource db {
 }
 
 model User {
-  id           Int      @id @default(autoincrement())
+  id           Int    @id @default(autoincrement())
   name         String
-  email        String   @unique
+  email        String @unique
   passwordHash String
   role         String
-  cases        Case[]   @relation("CaseAdmin")
+  cases        Case[] @relation("CaseAdmin")
 }
 
 model Case {
-  id                 Int               @id @default(autoincrement())
-  caseNumber         String            @unique
-  trackingCode       String            @unique
+  id                 Int              @id @default(autoincrement())
+  caseNumber         String           @unique
+  trackingCode       String           @unique
   citizenName        String
   citizenIdNumber    String
   status             String
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
   assignedDepartment String
   timelineEvents     TimelineEvent[]
   documents          Document[]
   paymentRequests    PaymentRequest[]
   payments           Payment[]
   createdByAdminId   Int?
-  createdByAdmin     User?             @relation("CaseAdmin", fields: [createdByAdminId], references: [id])
+  createdByAdmin     User?            @relation("CaseAdmin", fields: [createdByAdminId], references: [id])
 }
 
 model TimelineEvent {
@@ -45,113 +45,114 @@ model TimelineEvent {
 }
 
 model Document {
-  id        Int      @id @default(autoincrement())
-  caseId    Int
-  title     String
-  type      String
-  filePath  String
-  isPublic  Boolean  @default(false)
-  createdAt DateTime @default(now())
-  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  id              Int       @id @default(autoincrement())
+  caseId          Int
+  title           String
+  type            String
+  filePath        String
+  isPublic        Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  case            Case      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  paymentReceipts Payment[] @relation("PaymentReceipt")
 }
 
 model BankAccount {
-  id        Int       @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
   label     String
   bankName  String
-  iban      String    @unique
+  iban      String   @unique
   bic       String?
   country   String
   currency  String
-  isActive  Boolean   @default(true)
+  isActive  Boolean  @default(true)
   notes     String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   paymentRequests PaymentRequest[] @relation("PaymentRequestBankAccount")
   payments        Payment[]        @relation("PaymentBankAccount")
 }
 
 model CryptoWallet {
-  id              Int             @id @default(autoincrement())
-  label           String
-  asset           String
-  currency        String?
-  network         String
-  address         String          @unique
-  isActive        Boolean         @default(true)
-  notes           String?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  id        Int      @id @default(autoincrement())
+  label     String
+  asset     String
+  currency  String?
+  network   String
+  address   String   @unique
+  isActive  Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   paymentRequests PaymentRequest[] @relation("PaymentRequestWallet")
   payments        Payment[]        @relation("PaymentWallet")
 }
 
 model PaymentRequest {
-  id             Int                   @id @default(autoincrement())
-  caseId         Int
-  case           Case                  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  id     Int  @id @default(autoincrement())
+  caseId Int
+  case   Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
-  amount         Decimal
-  currency       String
+  amount   Decimal
+  currency String
 
-  methodType     String
-  methodCode     String
+  methodType String
+  methodCode String
 
-  bankAccountId  Int?
-  bankAccount    BankAccount?         @relation("PaymentRequestBankAccount", fields: [bankAccountId], references: [id])
+  bankAccountId Int?
+  bankAccount   BankAccount? @relation("PaymentRequestBankAccount", fields: [bankAccountId], references: [id])
 
   cryptoWalletId Int?
-  cryptoWallet   CryptoWallet?        @relation("PaymentRequestWallet", fields: [cryptoWalletId], references: [id])
+  cryptoWallet   CryptoWallet? @relation("PaymentRequestWallet", fields: [cryptoWalletId], references: [id])
 
-  status         String               @default("PENDING")
+  status String @default("PENDING")
 
   dueDate        DateTime?
   qrImageUrl     String?
   notesForClient String?
   internalNotes  String?
 
-  payments       Payment[]
+  payments Payment[]
 
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Payment {
-  id               Int              @id @default(autoincrement())
-  caseId           Int
-  case             Case             @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  id     Int  @id @default(autoincrement())
+  caseId Int
+  case   Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
   paymentRequestId Int?
-  paymentRequest   PaymentRequest?  @relation(fields: [paymentRequestId], references: [id])
+  paymentRequest   PaymentRequest? @relation(fields: [paymentRequestId], references: [id])
 
-  amount           Decimal
-  currency         String
+  amount   Decimal
+  currency String
 
-  methodType       String
-  methodCode       String
+  methodType String
+  methodCode String
 
-  bankAccountId    Int?
-  bankAccount      BankAccount?     @relation("PaymentBankAccount", fields: [bankAccountId], references: [id])
+  bankAccountId Int?
+  bankAccount   BankAccount? @relation("PaymentBankAccount", fields: [bankAccountId], references: [id])
 
-  cryptoWalletId   Int?
-  cryptoWallet     CryptoWallet?    @relation("PaymentWallet", fields: [cryptoWalletId], references: [id])
+  cryptoWalletId Int?
+  cryptoWallet   CryptoWallet? @relation("PaymentWallet", fields: [cryptoWalletId], references: [id])
 
-  status           String           @default("PENDING")
+  status String @default("PENDING")
 
-  payerName        String?
-  payerBank        String?
-  reference        String?
-  bankReference    String?
-  txHash           String?
-  paidAt           DateTime?
+  payerName     String?
+  payerBank     String?
+  reference     String?
+  bankReference String?
+  txHash        String?
+  paidAt        DateTime?
 
   receiptDocumentId Int?
   receiptDocument   Document? @relation("PaymentReceipt", fields: [receiptDocumentId], references: [id])
 
-  notes            String?
+  notes String?
 
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
