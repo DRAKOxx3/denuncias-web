@@ -25,6 +25,8 @@ Estructura base para un sistema de gestión de denuncias con backend en Node.js/
 3. Opcional: cargar datos de ejemplo
    ```bash
    npm run prisma:seed
+   # o
+   npm run seed
    ```
 
 4. Arrancar el servidor

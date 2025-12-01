@@ -50,6 +50,7 @@ async function main() {
     data: {
       label: 'USDT TRC20 Principal',
       asset: 'USDT',
+      currency: 'USDT',
       network: 'TRC20',
       address: 'TK8C2pQpExampleTRC20Wallet',
       notes: 'Solo USDT TRC20'
@@ -60,6 +61,7 @@ async function main() {
     data: {
       label: 'BTC Legacy',
       asset: 'BTC',
+      currency: 'BTC',
       network: 'Bitcoin',
       address: 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080',
       notes: 'Dirección BTC principal'
