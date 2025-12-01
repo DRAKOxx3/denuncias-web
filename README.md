@@ -32,16 +32,6 @@ Estructura base para un sistema de gestión de denuncias con backend en Node.js/
    npm run dev
    ```
 
-### Pagos
-- Nuevos modelos gestionados por Prisma: `BankAccount`, `CryptoWallet`, `PaymentRequest` y `Payment`.
-- Endpoints admin para pagos:
-  - `GET /api/admin/cases/:caseId/payments`
-  - `POST /api/admin/cases/:caseId/payment-requests`
-  - `PATCH /api/admin/payment-requests/:id`
-  - `POST /api/admin/cases/:caseId/payments`
-  - `PATCH /api/admin/payments/:id`
-- Cada vez que cambies el esquema de Prisma, ejecuta `npm run prisma:migrate` (o `npx prisma migrate dev --name <cambio>`) para aplicar las migraciones y actualizar la base de datos local.
-
 ## Frontend Next.js (`web/`)
 - Next.js 14 con App Router, TypeScript y Tailwind CSS.
 - Rutas públicas: `/` (búsqueda de expediente) y `/cases/[id]` (detalle por código de seguimiento), organizadas en `app/(public)` con el layout institucional (`app/(public)/layout.tsx`).

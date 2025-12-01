@@ -1,7 +1,4 @@
-import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
-
-const toNumber = (value) => (value instanceof Prisma.Decimal ? value.toNumber() : Number(value));
 
 const mapCase = (record) => ({
   id: record.id,
@@ -40,18 +37,12 @@ const mapDocument = (doc) => ({
 const mapPayment = (payment) => ({
   id: payment.id,
   case_id: payment.caseId,
-  monto: toNumber(payment.amount),
-  moneda: payment.currency,
+  concepto: payment.concept,
+  monto: payment.amount,
   estado: payment.status,
-  metodo: payment.methodType,
-  metodo_codigo: payment.methodCode,
-  referencia: payment.reference,
-  pagador: payment.payerName,
-  banco_pagador: payment.payerBank,
-  tx_hash: payment.txHash,
+  fecha_vencimiento: payment.dueDate.toISOString(),
   fecha_pago: payment.paidAt ? payment.paidAt.toISOString() : null,
-  creado_en: payment.createdAt.toISOString(),
-  solicitud_pago_id: payment.paymentRequestId
+  comprobante_path: payment.receiptPath || null
 });
 
 export const searchCase = async (req, res) => {
