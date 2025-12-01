@@ -8,3 +8,4 @@ backend/node_modules
 web/node_modules
 web/.next
 web/.env
+backend/prisma/dev.db
