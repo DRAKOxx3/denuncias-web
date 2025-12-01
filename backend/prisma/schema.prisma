@@ -7,25 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum PaymentMethodType {
-  BANK_TRANSFER
-  CRYPTO
-}
-
-enum PaymentRequestStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  CANCELLED
-  EXPIRED
-}
-
-enum PaymentStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
-
 model User {
   id           Int      @id @default(autoincrement())
   name         String
@@ -85,7 +66,8 @@ model BankAccount {
   isActive  Boolean   @default(true)
   notes     String?
 
-  payments  Payment[]
+  paymentRequests PaymentRequest[] @relation("PaymentRequestBankAccount")
+  payments        Payment[]        @relation("PaymentBankAccount")
 }
 
 model CryptoWallet {
@@ -97,8 +79,8 @@ model CryptoWallet {
   isActive        Boolean         @default(true)
   notes           String?
 
-  paymentRequests PaymentRequest[]
-  payments        Payment[]
+  paymentRequests PaymentRequest[] @relation("PaymentRequestWallet")
+  payments        Payment[]        @relation("PaymentWallet")
 }
 
 model PaymentRequest {
@@ -109,16 +91,16 @@ model PaymentRequest {
   amount         Decimal
   currency       String
 
-  methodType     PaymentMethodType
+  methodType     String
   methodCode     String
 
   bankAccountId  Int?
-  bankAccount    BankAccount?         @relation(fields: [bankAccountId], references: [id])
+  bankAccount    BankAccount?         @relation("PaymentRequestBankAccount", fields: [bankAccountId], references: [id])
 
   cryptoWalletId Int?
-  cryptoWallet   CryptoWallet?        @relation(fields: [cryptoWalletId], references: [id])
+  cryptoWallet   CryptoWallet?        @relation("PaymentRequestWallet", fields: [cryptoWalletId], references: [id])
 
-  status         PaymentRequestStatus @default(PENDING)
+  status         String               @default("PENDING")
 
   dueDate        DateTime?
   qrImageUrl     String?
@@ -142,16 +124,16 @@ model Payment {
   amount           Decimal
   currency         String
 
-  methodType       PaymentMethodType
+  methodType       String
   methodCode       String
 
   bankAccountId    Int?
-  bankAccount      BankAccount?     @relation(fields: [bankAccountId], references: [id])
+  bankAccount      BankAccount?     @relation("PaymentBankAccount", fields: [bankAccountId], references: [id])
 
   cryptoWalletId   Int?
-  cryptoWallet     CryptoWallet?    @relation(fields: [cryptoWalletId], references: [id])
+  cryptoWallet     CryptoWallet?    @relation("PaymentWallet", fields: [cryptoWalletId], references: [id])
 
-  status           PaymentStatus    @default(PENDING)
+  status           String           @default("PENDING")
 
   payerName        String?
   payerBank        String?

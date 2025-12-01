@@ -1,23 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import {
-  createPayment,
-  createPaymentRequest,
-  listAdminCases,
-  listBankAccounts,
-  listCryptoWallets,
-  updatePayment,
-  updatePaymentRequest,
-  type AdminCase,
-  type BankAccount,
-  type CryptoWallet,
-  type Payment,
-  type PaymentRequest,
-  type PaymentRequestStatus,
-  type PaymentStatus
-} from '@/lib/api';
+import { createPayment, createPaymentRequest, updatePayment, updatePaymentRequest, type Payment, type PaymentRequest, type PaymentRequestStatus, type PaymentStatus } from '@/lib/api';
 import { useAdminPayments } from './useAdminPayments';
+import { usePaymentResources } from './usePaymentResources';
 import Link from 'next/link';
 
 const badgeClass = (status: string) => {
@@ -80,9 +66,7 @@ function MethodSummary({ request }: { request: PaymentRequest }) {
 
 export default function AdminPaymentsPage() {
   const { paymentRequests, payments, isLoading, error, reload } = useAdminPayments();
-  const [cases, setCases] = useState<AdminCase[]>([]);
-  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
-  const [wallets, setWallets] = useState<CryptoWallet[]>([]);
+  const { cases, bankAccounts, wallets, loading: loadingResources, error: resourceError } = usePaymentResources();
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const [showRequestModal, setShowRequestModal] = useState(false);
@@ -121,24 +105,8 @@ export default function AdminPaymentsPage() {
   });
 
   useEffect(() => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
-    if (!token) {
-      setStatusMessage('Inicia sesión para gestionar pagos.');
-      return;
-    }
-
-    listAdminCases(token)
-      .then((data) => setCases(data))
-      .catch((err: any) => setStatusMessage(err?.message || 'No se pudieron cargar los casos.'));
-
-    listBankAccounts(token)
-      .then((data) => setBankAccounts(data))
-      .catch(() => setBankAccounts([]));
-
-    listCryptoWallets(token)
-      .then((data) => setWallets(data))
-      .catch(() => setWallets([]));
-  }, []);
+    if (resourceError) setStatusMessage(resourceError);
+  }, [resourceError]);
 
   const requestsByCase = useMemo(() => {
     const map: Record<number, PaymentRequest[]> = {};
@@ -267,7 +235,7 @@ export default function AdminPaymentsPage() {
     }
   };
 
-  const caseOptions = cases.map((c) => ({ value: c.id, label: `${c.numero_expediente} · ${c.denunciante_nombre}` }));
+  const caseOptions = cases.map((c) => ({ value: c.id, label: `${(c as any).numero_expediente || (c as any).caseNumber} · ${c.denunciante_nombre || (c as any).citizenName}` }));
 
   const paymentRequestsForSelectedCase = paymentForm.caseId
     ? requestsByCase[Number(paymentForm.caseId)] || []
@@ -296,6 +264,7 @@ export default function AdminPaymentsPage() {
       {statusMessage && <p className="text-sm text-amber-700">{statusMessage}</p>}
       {error && <p className="text-sm text-amber-700">{error}</p>}
       {isLoading && <p className="text-sm text-slate-500">Cargando pagos...</p>}
+      {loadingResources && <p className="text-sm text-slate-500">Cargando cuentas bancarias y wallets...</p>}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div className="card shadow-sm overflow-hidden">
@@ -530,19 +499,22 @@ export default function AdminPaymentsPage() {
                   <label className="space-y-1 text-sm">
                     <span className="font-semibold text-slate-700">Cuenta bancaria</span>
                     <select
-                      className="w-full border rounded-md px-3 py-2"
-                      value={requestForm.bankAccountId}
-                      onChange={(e) => setRequestForm({ ...requestForm, bankAccountId: e.target.value })}
-                    >
-                      <option value="">Selecciona cuenta</option>
-                      {bankAccounts.map((acc) => (
-                        <option key={acc.id} value={acc.id}>
-                          {acc.label} · {acc.iban}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
+                    className="w-full border rounded-md px-3 py-2"
+                    value={requestForm.bankAccountId}
+                    onChange={(e) => setRequestForm({ ...requestForm, bankAccountId: e.target.value })}
+                  >
+                    <option value="">Selecciona cuenta</option>
+                    {bankAccounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.label} · {acc.iban}
+                      </option>
+                    ))}
+                  </select>
+                  {bankAccounts.length === 0 && (
+                    <p className="text-xs text-amber-700">No hay cuentas bancarias activas. Carga la semilla o crea una desde el backend.</p>
+                  )}
+                </label>
+              </div>
               ) : (
                 <div className="grid md:grid-cols-2 gap-4">
                   <label className="space-y-1 text-sm">
@@ -557,21 +529,24 @@ export default function AdminPaymentsPage() {
                   <label className="space-y-1 text-sm">
                     <span className="font-semibold text-slate-700">Wallet</span>
                     <select
-                      className="w-full border rounded-md px-3 py-2"
-                      value={requestForm.cryptoWalletId}
-                      onChange={(e) => setRequestForm({ ...requestForm, cryptoWalletId: e.target.value })}
-                    >
-                      <option value="">Selecciona wallet</option>
-                      {wallets.map((w) => (
-                        <option key={w.id} value={w.id}>
-                          {w.label} · {w.asset} ({w.network})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="space-y-1 text-sm md:col-span-2">
-                    <span className="font-semibold text-slate-700">URL imagen QR</span>
-                    <input
+                    className="w-full border rounded-md px-3 py-2"
+                    value={requestForm.cryptoWalletId}
+                    onChange={(e) => setRequestForm({ ...requestForm, cryptoWalletId: e.target.value })}
+                  >
+                    <option value="">Selecciona wallet</option>
+                    {wallets.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.label} · {w.asset} ({w.network})
+                      </option>
+                    ))}
+                  </select>
+                  {wallets.length === 0 && (
+                    <p className="text-xs text-amber-700">No hay wallets configuradas. Revisa la semilla o crea una wallet en backend.</p>
+                  )}
+                </label>
+                <label className="space-y-1 text-sm md:col-span-2">
+                  <span className="font-semibold text-slate-700">URL imagen QR</span>
+                  <input
                       className="w-full border rounded-md px-3 py-2"
                       value={requestForm.qrImageUrl}
                       onChange={(e) => setRequestForm({ ...requestForm, qrImageUrl: e.target.value })}
@@ -732,6 +707,9 @@ export default function AdminPaymentsPage() {
                         </option>
                       ))}
                     </select>
+                    {bankAccounts.length === 0 && (
+                      <p className="text-xs text-amber-700">No hay cuentas bancarias activas. Ejecuta la semilla o registra una cuenta.</p>
+                    )}
                   </label>
                   <label className="space-y-1 text-sm">
                     <span className="font-semibold text-slate-700">Banco pagador</span>
@@ -758,6 +736,9 @@ export default function AdminPaymentsPage() {
                         </option>
                       ))}
                     </select>
+                    {wallets.length === 0 && (
+                      <p className="text-xs text-amber-700">No hay wallets configuradas. Revisa la semilla o crea una wallet en backend.</p>
+                    )}
                   </label>
                   <label className="space-y-1 text-sm">
                     <span className="font-semibold text-slate-700">Tx Hash</span>
