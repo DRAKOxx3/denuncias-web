@@ -34,8 +34,8 @@ Estructura base para un sistema de gestión de denuncias con backend en Node.js/
 
 ## Frontend Next.js (`web/`)
 - Next.js 14 con App Router, TypeScript y Tailwind CSS.
-- Rutas públicas: `/` (búsqueda de expediente) y `/cases/[id]` (detalle por código de seguimiento).
-- Rutas admin: `/admin/login`, `/admin/cases`, `/admin/cases/new`, `/admin/cases/[id]`.
+- Rutas públicas: `/` (búsqueda de expediente) y `/cases/[id]` (detalle por código de seguimiento), organizadas en `app/(public)` con el layout institucional (`app/(public)/layout.tsx`).
+- Rutas admin: `/admin/login`, `/admin/cases`, `/admin/cases/new`, `/admin/cases/[id]` bajo `app/(admin)/admin` con sidebar y cabecera en `app/(admin)/admin/layout.tsx`.
 - Cliente API en `web/lib/api.ts` que consume el backend Express (puedes ajustar la URL con `NEXT_PUBLIC_API_BASE_URL`).
 - `next.config.mjs` incluye un rewrite para apuntar `/api/*` al backend en `localhost:4000` por defecto.
 

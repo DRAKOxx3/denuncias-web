@@ -8,8 +8,8 @@
 
 body {
   margin: 0;
-  background: #f8fafc;
-  color: #0f172a;
+  background: #F4F4F4;
+  color: #0D2A45;
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
@@ -19,13 +19,17 @@ a {
 }
 
 .container {
-  @apply max-w-5xl mx-auto px-4;
+  @apply max-w-6xl mx-auto px-4;
 }
 
 .button-primary {
-  @apply bg-accent text-white px-4 py-2 rounded shadow hover:bg-blue-600 transition;
+  @apply bg-primary text-white px-4 py-2 rounded-md shadow-sm hover:bg-[#0b3257] transition font-semibold;
+}
+
+.button-secondary {
+  @apply border border-primary text-primary px-4 py-2 rounded-md hover:bg-primary hover:text-white transition font-semibold;
 }
 
 .card {
-  @apply bg-white rounded-lg shadow p-4 border border-slate-100;
+  @apply bg-white rounded-xl shadow-sm p-6 border border-slate-100;
 }
