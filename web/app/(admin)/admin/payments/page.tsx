@@ -83,7 +83,8 @@ function MethodSummary({ request }: { request: PaymentRequest }) {
 
 export default function AdminPaymentsPage() {
   const { paymentRequests, payments, isLoading, error, reload } = useAdminPayments();
-  const { cases, bankAccounts, wallets, loading: loadingResources, error: resourceError } = usePaymentResources();
+  const { cases, bankAccounts, cryptoWallets, isLoading: loadingResources, isError: resourceError } =
+    usePaymentResources();
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const [showRequestModal, setShowRequestModal] = useState(false);
@@ -342,7 +343,10 @@ export default function AdminPaymentsPage() {
     }
   };
 
-  const caseOptions = cases.map((c) => ({ value: c.id, label: `${(c as any).numero_expediente || (c as any).caseNumber} · ${c.denunciante_nombre || (c as any).citizenName}` }));
+  const caseOptions = cases.map((c) => ({
+    value: c.id,
+    label: `${c.caseNumber || c.id} · ${c.citizenName || 'Ciudadano'}`
+  }));
 
   const paymentRequestsForSelectedCase = paymentForm.caseId
     ? requestsByCase[Number(paymentForm.caseId)] || []
@@ -371,7 +375,7 @@ export default function AdminPaymentsPage() {
       {statusMessage && <p className="text-sm text-amber-700">{statusMessage}</p>}
       {error && <p className="text-sm text-amber-700">{error}</p>}
       {isLoading && <p className="text-sm text-slate-500">Cargando pagos...</p>}
-      {loadingResources && <p className="text-sm text-slate-500">Cargando cuentas bancarias y wallets...</p>}
+      {loadingResources && <p className="text-sm text-slate-500">Cargando cuentas bancarias y cryptoWallets...</p>}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="card shadow-sm">
@@ -468,7 +472,7 @@ export default function AdminPaymentsPage() {
               <p className="text-xs uppercase tracking-widest text-primary/70">Métodos</p>
               <h2 className="text-lg font-semibold text-primary">Wallets cripto</h2>
             </div>
-            <span className="text-xs text-slate-500">Activas: {wallets.filter((w) => w.isActive).length}</span>
+            <span className="text-xs text-slate-500">Activas: {cryptoWallets.filter((w) => w.isActive).length}</span>
           </div>
           <div className="p-4 space-y-3">
             <form onSubmit={handleCreateWallet} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -519,8 +523,8 @@ export default function AdminPaymentsPage() {
               </div>
             </form>
             <div className="divide-y border rounded-md bg-slate-50">
-              {wallets.length === 0 && <p className="p-3 text-sm text-slate-600">No hay wallets registradas.</p>}
-              {wallets.map((wallet) => (
+              {cryptoWallets.length === 0 && <p className="p-3 text-sm text-slate-600">No hay wallets registradas.</p>}
+              {cryptoWallets.map((wallet) => (
                 <div key={wallet.id} className="p-3 flex items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold text-primary">{wallet.label}</p>
@@ -904,13 +908,13 @@ export default function AdminPaymentsPage() {
                     onChange={(e) => setRequestForm({ ...requestForm, cryptoWalletId: e.target.value })}
                   >
                     <option value="">Selecciona wallet</option>
-                    {wallets.map((w) => (
+                    {cryptoWallets.map((w) => (
                       <option key={w.id} value={w.id}>
                         {w.label} · {w.asset} ({w.network})
                       </option>
                     ))}
                   </select>
-                  {wallets.length === 0 && (
+                  {cryptoWallets.length === 0 && (
                     <p className="text-xs text-amber-700">No hay wallets configuradas. Revisa la semilla o crea una wallet en backend.</p>
                   )}
                 </label>
@@ -1100,13 +1104,13 @@ export default function AdminPaymentsPage() {
                       onChange={(e) => setPaymentForm({ ...paymentForm, cryptoWalletId: e.target.value })}
                     >
                       <option value="">Selecciona wallet</option>
-                      {wallets.map((w) => (
+                      {cryptoWallets.map((w) => (
                         <option key={w.id} value={w.id}>
                           {w.label} · {w.asset} ({w.network})
                         </option>
                       ))}
                     </select>
-                    {wallets.length === 0 && (
+                    {cryptoWallets.length === 0 && (
                       <p className="text-xs text-amber-700">No hay wallets configuradas. Revisa la semilla o crea una wallet en backend.</p>
                     )}
                   </label>

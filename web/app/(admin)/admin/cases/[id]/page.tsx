@@ -17,7 +17,7 @@ import type {
   PaymentStatus
 } from '@/lib/api';
 import { useCasePayments } from './useCasePayments';
-import { usePaymentResources } from '../payments/usePaymentResources';
+import { usePaymentResources } from '../../payments/usePaymentResources';
 
 const paymentRequestStatuses: PaymentRequestStatus[] = ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED', 'EXPIRED'];
 const paymentStatuses: PaymentStatus[] = ['PENDING', 'APPROVED', 'REJECTED'];
@@ -127,8 +127,15 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
   const [submittingPayment, setSubmittingPayment] = useState(false);
 
   const caseId = Number(params.id);
-  const { bankAccounts, wallets, loading: resourcesLoading, error: resourcesError, reload: reloadResources } =
-    usePaymentResources();
+  const { paymentRequests, payments, isLoading: isLoadingPayments, error: paymentsError, reload } =
+    useCasePayments(caseId);
+  const {
+    bankAccounts,
+    cryptoWallets,
+    isLoading: resourcesLoading,
+    isError: resourcesError,
+    reload: reloadResources
+  } = usePaymentResources();
 
   const bankOptionsForRequest = useMemo(
     () =>
@@ -139,8 +146,8 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
   );
 
   const walletOptionsForRequest = useMemo(
-    () => wallets.filter((w) => w.isActive).map((w) => ({ id: w.id, label: `${w.label} · ${w.network}` })),
-    [wallets]
+    () => cryptoWallets.filter((w) => w.isActive).map((w) => ({ id: w.id, label: `${w.label} · ${w.network}` })),
+    [cryptoWallets]
   );
 
   const bankOptionsForPayment = useMemo(
@@ -152,8 +159,8 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
   );
 
   const walletOptionsForPayment = useMemo(
-    () => wallets.filter((w) => w.isActive).map((w) => ({ id: w.id, label: `${w.label} · ${w.network}` })),
-    [wallets]
+    () => cryptoWallets.filter((w) => w.isActive).map((w) => ({ id: w.id, label: `${w.label} · ${w.network}` })),
+    [cryptoWallets]
   );
 
   useEffect(() => {

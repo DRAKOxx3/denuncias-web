@@ -3,38 +3,52 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   listPaymentResources,
-  type AdminCase,
   type BankAccount,
-  type CryptoWallet
+  type CryptoWallet,
+  type PaymentResources
 } from '@/lib/api';
 
-export function usePaymentResources() {
-  const [cases, setCases] = useState<AdminCase[]>([]);
+type PaymentResourceCase = PaymentResources['cases'][number];
+
+type PaymentResourcesState = {
+  cases: PaymentResourceCase[];
+  bankAccounts: BankAccount[];
+  cryptoWallets: CryptoWallet[];
+  isLoading: boolean;
+  isError: string | null;
+  reload: () => void;
+};
+
+export function usePaymentResources(): PaymentResourcesState {
+  const [cases, setCases] = useState<PaymentResourceCase[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
-  const [wallets, setWallets] = useState<CryptoWallet[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [cryptoWallets, setCryptoWallets] = useState<CryptoWallet[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isError, setIsError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
     if (!token) {
-      setError('Necesitas iniciar sesión para gestionar pagos.');
+      setIsError('Necesitas iniciar sesión para gestionar pagos.');
       return;
     }
 
-    setLoading(true);
-    setError(null);
+    setIsLoading(true);
+    setIsError(null);
 
     listPaymentResources(token)
       .then((payload) => {
+        const activeBanks = (payload.bankAccounts || []).filter((b) => b.isActive !== false);
+        const activeWallets = (payload.cryptoWallets || []).filter((w) => w.isActive !== false);
+
         setCases(payload.cases || []);
-        setBankAccounts(payload.bankAccounts || []);
-        setWallets(payload.cryptoWallets || []);
+        setBankAccounts(activeBanks);
+        setCryptoWallets(activeWallets);
       })
       .catch((err: any) => {
-        setError(err?.message || 'No se pudieron cargar los recursos de pagos.');
+        setIsError(err?.message || 'No se pudieron cargar los recursos de pagos.');
       })
-      .finally(() => setLoading(false));
+      .finally(() => setIsLoading(false));
   }, []);
 
   useEffect(() => {
@@ -42,5 +56,5 @@ export function usePaymentResources() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { cases, bankAccounts, wallets, loading, error, reload };
+  return { cases, bankAccounts, cryptoWallets, isLoading, isError, reload };
 }
