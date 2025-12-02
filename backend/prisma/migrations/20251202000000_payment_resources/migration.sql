@@ -1,8 +1,0 @@
--- Add timestamps and currency metadata to payment resources
-ALTER TABLE "BankAccount" ADD COLUMN "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP;
-ALTER TABLE "BankAccount" ADD COLUMN "updatedAt" DATETIME DEFAULT CURRENT_TIMESTAMP;
-ALTER TABLE "CryptoWallet" ADD COLUMN "currency" TEXT;
-ALTER TABLE "CryptoWallet" ADD COLUMN "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP;
-ALTER TABLE "CryptoWallet" ADD COLUMN "updatedAt" DATETIME DEFAULT CURRENT_TIMESTAMP;
-ALTER TABLE "Payment" ADD COLUMN "bankReference" TEXT;
-ALTER TABLE "Payment" ADD COLUMN "receiptDocumentId" INTEGER REFERENCES "Document"("id") ON DELETE SET NULL;
