@@ -287,11 +287,12 @@ export async function getCasePayments(
   token: string,
   caseId: number
 ): Promise<{ paymentRequests: PaymentRequest[]; payments: Payment[] }> {
-  const res = await fetch(`${API_BASE}/api/admin/cases/${caseId}/payments`, {
-    headers: { Authorization: `Bearer ${token}` },
-    next: { revalidate: 0 }
-  });
-  return handleResponse(res);
+  const [paymentRequests, payments] = await Promise.all([
+    listPaymentRequestsAdmin(token, caseId),
+    listPaymentsAdmin(token, caseId)
+  ]);
+
+  return { paymentRequests, payments };
 }
 
 export async function createPaymentRequest(
@@ -375,16 +376,18 @@ export async function reviewPayment(
   return handleResponse(res);
 }
 
-export async function listPaymentRequestsAdmin(token: string): Promise<PaymentRequest[]> {
-  const res = await fetch(`${API_BASE}/api/admin/payment-requests`, {
+export async function listPaymentRequestsAdmin(token: string, caseId?: number): Promise<PaymentRequest[]> {
+  const query = caseId ? `?caseId=${caseId}` : '';
+  const res = await fetch(`${API_BASE}/api/admin/payment-requests${query}`, {
     headers: { Authorization: `Bearer ${token}` },
     next: { revalidate: 0 }
   });
   return handleResponse(res);
 }
 
-export async function listPaymentsAdmin(token: string): Promise<Payment[]> {
-  const res = await fetch(`${API_BASE}/api/admin/payments`, {
+export async function listPaymentsAdmin(token: string, caseId?: number): Promise<Payment[]> {
+  const query = caseId ? `?caseId=${caseId}` : '';
+  const res = await fetch(`${API_BASE}/api/admin/payments${query}`, {
     headers: { Authorization: `Bearer ${token}` },
     next: { revalidate: 0 }
   });

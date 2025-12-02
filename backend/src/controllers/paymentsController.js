@@ -15,16 +15,6 @@ export const getCasePayments = async (req, res) => {
     const existingCase = await prisma.case.findUnique({ where: { id: caseId } });
     if (!existingCase) return res.status(404).json({ message: 'Caso no encontrado' });
 
-    if (bankAccountId) {
-      const bankAccount = await prisma.bankAccount.findFirst({ where: { id: Number(bankAccountId), isActive: true } });
-      if (!bankAccount) return res.status(400).json({ message: 'La cuenta bancaria seleccionada no está disponible.' });
-    }
-
-    if (cryptoWalletId) {
-      const wallet = await prisma.cryptoWallet.findFirst({ where: { id: Number(cryptoWalletId), isActive: true } });
-      if (!wallet) return res.status(400).json({ message: 'La wallet seleccionada no está disponible.' });
-    }
-
     const [paymentRequests, payments] = await Promise.all([
       prisma.paymentRequest.findMany({
         where: { caseId },
@@ -53,9 +43,12 @@ export const getCasePayments = async (req, res) => {
   }
 };
 
-export const listPaymentRequests = async (_req, res) => {
+export const listPaymentRequests = async (req, res) => {
+  const caseId = req.query.caseId ? Number(req.query.caseId) : undefined;
+
   try {
     const paymentRequests = await prisma.paymentRequest.findMany({
+      where: caseId ? { caseId } : {},
       include: {
         bankAccount: true,
         cryptoWallet: true,
@@ -71,9 +64,12 @@ export const listPaymentRequests = async (_req, res) => {
   }
 };
 
-export const listPayments = async (_req, res) => {
+export const listPayments = async (req, res) => {
+  const caseId = req.query.caseId ? Number(req.query.caseId) : undefined;
+
   try {
     const payments = await prisma.payment.findMany({
+      where: caseId ? { caseId } : {},
       include: {
         bankAccount: true,
         cryptoWallet: true,
