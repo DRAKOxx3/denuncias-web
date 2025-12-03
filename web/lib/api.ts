@@ -143,6 +143,17 @@ export type PublicPaymentRequest = {
   notes_for_client?: string | null;
   qr_image_url?: string | null;
   has_payment?: boolean;
+  payment_status?: string | null;
+  payment_summary?: {
+    status: string | null;
+    payer_name?: string | null;
+    payer_bank?: string | null;
+    bank_reference?: string | null;
+    tx_hash?: string | null;
+    paid_at?: string | null;
+    receipt_path?: string | null;
+    rejection_reason?: string | null;
+  } | null;
   bank_account?: {
     id: number;
     label: string;
@@ -191,6 +202,7 @@ export type Payment = {
   bankReference?: string | null;
   txHash?: string | null;
   paidAt?: string | null;
+  rejectionReason?: string | null;
   receiptDocumentId?: number | null;
   receiptDocument?: { id: number; filePath: string; title?: string; type?: string; createdAt?: string } | null;
   receiptUrl?: string | null;
@@ -221,6 +233,7 @@ export type PublicPayment = {
   created_at: string;
   payment_request_id?: number | null;
   receipt_path?: string | null;
+  rejection_reason?: string | null;
 };
 
 async function handleResponse<T>(res: Response): Promise<T> {

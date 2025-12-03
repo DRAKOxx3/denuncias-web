@@ -164,7 +164,10 @@ export default function AdminPaymentsPage() {
     return map;
   }, [paymentRequests]);
 
-  const pendingReviewPayments = useMemo(() => payments.filter((p) => p.status === 'PENDING_REVIEW'), [payments]);
+  const pendingReviewPayments = useMemo(
+    () => payments.filter((p) => p.status === 'PENDING_REVIEW' || p.status === 'PENDING'),
+    [payments]
+  );
 
   const handleCreateRequest = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -412,16 +415,17 @@ export default function AdminPaymentsPage() {
       setPayments((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
       if (updated.paymentRequestId) {
         setPaymentRequests((prev) =>
-          prev.map((pr) =>
-            pr.id === updated.paymentRequestId
-              ? { ...pr, status: updated.paymentRequest?.status || (action === 'APPROVE' ? 'PAID' : 'PENDING') }
-              : pr
-          )
-        );
-      }
+            prev.map((pr) =>
+              pr.id === updated.paymentRequestId
+                ? { ...pr, status: updated.paymentRequest?.status || (action === 'APPROVE' ? 'APPROVED' : 'REJECTED') }
+                : pr
+            )
+          );
+        }
       setSelectedPayment(null);
       setReviewNote('');
       setRejectionReason('');
+      setStatusMessage(action === 'APPROVE' ? 'Pago aprobado correctamente.' : 'Pago rechazado.');
     } catch (err: any) {
       setReviewError(err?.message || 'No se pudo revisar el pago.');
     } finally {
@@ -650,6 +654,7 @@ export default function AdminPaymentsPage() {
                 <th className="p-3 font-semibold">Caso</th>
                 <th className="p-3 font-semibold">Monto</th>
                 <th className="p-3 font-semibold">Método</th>
+                <th className="p-3 font-semibold">Estado</th>
                 <th className="p-3 font-semibold">Comprobante</th>
                 <th className="p-3 font-semibold">Pagador</th>
                 <th className="p-3 font-semibold">Acciones</th>
@@ -669,6 +674,11 @@ export default function AdminPaymentsPage() {
                   </td>
                   <td className="p-3 align-top text-sm text-slate-700">
                     {p.methodType === 'CRYPTO' ? 'Cripto' : 'Transferencia'} · {p.methodCode}
+                  </td>
+                  <td className="p-3 align-top">
+                    <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${paymentBadgeClass(p.status)}`}>
+                      {p.status === 'PENDING_REVIEW' ? 'EN REVISIÓN' : p.status}
+                    </span>
                   </td>
                   <td className="p-3 align-top text-xs">
                     {p.receiptUrl || p.receiptDocument?.filePath ? (

@@ -46,12 +46,19 @@ const maskIban = (value) => {
 };
 
 const mapPaymentRequestPublic = (request) => {
-  const hasReceipt = (request.payments || []).length > 0;
+  const sortedPayments = [...(request.payments || [])].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+  const latestPayment = sortedPayments[0];
+  const hasReceipt = Boolean(latestPayment);
   const normalizedStatus = (() => {
-    if (['PAID', 'APPROVED'].includes(request.status)) return 'APPROVED';
+    if (latestPayment?.status === 'APPROVED') return 'APPROVED';
+    if (latestPayment?.status === 'REJECTED') return 'REJECTED';
+    if (latestPayment?.status === 'PENDING_REVIEW') return 'PAID_UNDER_REVIEW';
+    if (['AWAITING_CONFIRMATION', 'PAID_UNDER_REVIEW'].includes(request.status)) return 'PAID_UNDER_REVIEW';
+    if (['APPROVED', 'PAID'].includes(request.status)) return 'APPROVED';
     if (['REJECTED', 'CANCELLED'].includes(request.status)) return 'REJECTED';
     if (['EXPIRED'].includes(request.status)) return 'EXPIRED';
-    if (['AWAITING_CONFIRMATION', 'PAID_UNDER_REVIEW'].includes(request.status)) return 'PAID_UNDER_REVIEW';
     return 'PENDING';
   })();
 
@@ -90,7 +97,20 @@ const mapPaymentRequestPublic = (request) => {
         }
       : null,
     created_at: request.createdAt.toISOString(),
-    updated_at: request.updatedAt.toISOString()
+    updated_at: request.updatedAt.toISOString(),
+    payment_status: latestPayment?.status || null,
+    payment_summary: latestPayment
+      ? {
+          status: latestPayment.status,
+          payer_name: latestPayment.payerName,
+          payer_bank: latestPayment.payerBank,
+          bank_reference: latestPayment.bankReference || latestPayment.reference,
+          tx_hash: latestPayment.txHash,
+          paid_at: latestPayment.paidAt ? latestPayment.paidAt.toISOString() : null,
+          receipt_path: latestPayment.receiptDocument?.filePath || null,
+          rejection_reason: latestPayment.rejectionReason || null
+        }
+      : null
   };
 };
 
@@ -109,7 +129,8 @@ const mapPayment = (payment) => ({
   paid_at: payment.paidAt ? payment.paidAt.toISOString() : null,
   created_at: payment.createdAt.toISOString(),
   payment_request_id: payment.paymentRequestId,
-  receipt_path: payment.receiptDocument?.filePath || null
+  receipt_path: payment.receiptDocument?.filePath || null,
+  rejection_reason: payment.rejectionReason || null
 });
 
 export const searchCase = async (req, res) => {
@@ -138,7 +159,7 @@ export const searchCase = async (req, res) => {
       prisma.payment.findMany({ where: { caseId: foundCase.id }, include: { receiptDocument: true } }),
       prisma.paymentRequest.findMany({
         where: { caseId: foundCase.id },
-        include: { bankAccount: true, cryptoWallet: true, payments: true },
+        include: { bankAccount: true, cryptoWallet: true, payments: { include: { receiptDocument: true } } },
         orderBy: { createdAt: 'desc' }
       })
     ]);

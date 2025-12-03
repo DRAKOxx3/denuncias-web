@@ -63,8 +63,12 @@ Estructura base para un sistema de gestión de denuncias con backend en Node.js/
 - Flujo ciudadano:
   - `POST /api/public/payment-requests/:id/confirm` permite a un ciudadano marcar un pago como realizado adjuntando comprobante.
   - En la página pública del expediente se muestran todas las solicitudes con su estado normalizado (Pendiente, En revisión, Aprobado, Rechazado, Vencido) y se indica si ya se envió comprobante.
-  - Solo se admite un comprobante por solicitud; si ya existe un `Payment` ligado, el backend devuelve un error claro y la UI muestra el resumen en lugar del formulario.
+  - Solo se admite un comprobante por solicitud; si ya existe un `Payment` ligado, el backend devuelve un error claro y la UI muestra el resumen en lugar del formulario, incluyendo notas de rechazo si corresponde.
   - Los comprobantes se guardan como documentos privados y quedan pendientes de revisión de un administrador.
+- Revisión en admin:
+  - La sección `/admin/payments` muestra la cola de pagos con estado `PENDING`/`PENDING_REVIEW` para aprobar o rechazar con nota opcional (y motivo de rechazo almacenado en `rejectionReason`).
+  - Al aprobar: `Payment.status=APPROVED` y la `PaymentRequest` asociada pasa a `APPROVED`. Al rechazar: `Payment.status=REJECTED` y la solicitud vuelve a `REJECTED` sin admitir más comprobantes.
+- Comprobantes: se aceptan PDF o imágenes (png/jpg/webp) de hasta 10 MB; los errores de validación se devuelven en español y se muestran tanto en la vista pública como en el admin.
 - Eventos de timeline: la creación de solicitudes, el envío de comprobantes y las aprobaciones/rechazos generan eventos automáticos (`PAYMENT_REQUEST_CREATED`, `PAYMENT_CONFIRMATION_SUBMITTED`, `PAYMENT_APPROVED`, `PAYMENT_REJECTED`) visibles en la línea de tiempo del caso.
 - Cada vez que cambies el esquema de Prisma, ejecuta `npm run prisma:migrate` (o `npx prisma migrate dev --name <cambio>`) para aplicar las migraciones y actualizar la base de datos local.
 - Si no ves cuentas bancarias o wallets en el panel `/admin/payments`, ejecuta `npm run prisma:seed` tras migrar para volver a cargar los datos de ejemplo (cuentas SEPA y wallets cripto).

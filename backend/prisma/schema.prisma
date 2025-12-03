@@ -148,6 +148,8 @@ model Payment {
   txHash        String?
   paidAt        DateTime?
 
+  rejectionReason String?
+
   receiptDocumentId Int?
   receiptDocument   Document? @relation("PaymentReceipt", fields: [receiptDocumentId], references: [id])
 

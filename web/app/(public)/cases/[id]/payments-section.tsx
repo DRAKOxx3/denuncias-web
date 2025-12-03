@@ -27,6 +27,17 @@ const statusLabels: Record<string, string> = {
   EXPIRED: 'Vencido'
 };
 
+function deriveRequestStatus(request: PublicPaymentRequest, summary?: PublicPayment | null) {
+  if (summary?.status === 'APPROVED') return 'APPROVED';
+  if (summary?.status === 'REJECTED') return 'REJECTED';
+  if (summary?.status === 'PENDING_REVIEW' || summary?.status === 'PAID_UNDER_REVIEW') return 'PAID_UNDER_REVIEW';
+  if (request.status === 'APPROVED') return 'APPROVED';
+  if (request.status === 'REJECTED') return 'REJECTED';
+  if (request.status === 'PAID_UNDER_REVIEW') return 'PAID_UNDER_REVIEW';
+  if (request.status === 'EXPIRED') return 'EXPIRED';
+  return 'PENDING';
+}
+
 function Badge({ status }: { status: string }) {
   const cls = statusColors[status] || 'bg-slate-100 text-slate-700 border-slate-200';
   const label = statusLabels[status] || status;
@@ -43,7 +54,15 @@ function formatMethod(item: { method_type: string; method_code: string; bank_acc
   return item.method_type || 'Método';
 }
 
-function PaymentRequestCard({ request, summary }: { request: PublicPaymentRequest; summary?: PublicPayment | null }) {
+function PaymentRequestCard({
+  request,
+  summary,
+  status
+}: {
+  request: PublicPaymentRequest;
+  summary?: PublicPayment | null;
+  status: string;
+}) {
   return (
     <div className="rounded-lg border border-slate-200 p-4 bg-white shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -53,7 +72,7 @@ function PaymentRequestCard({ request, summary }: { request: PublicPaymentReques
             {request.amount} {request.currency}
           </p>
         </div>
-        <Badge status={request.status} />
+        <Badge status={status} />
       </div>
       <div className="mt-3 text-sm text-slate-700 space-y-1">
         <p>
@@ -111,10 +130,10 @@ function PaymentRequestCard({ request, summary }: { request: PublicPaymentReques
             )}
             <p className="text-xs text-amber-700 mt-2">
               {summary.status === 'APPROVED'
-                ? 'Comprobante aprobado. Gracias por completar el pago.'
+                ? 'Pago confirmado. No necesitas hacer nada más.'
                 : summary.status === 'REJECTED'
-                ? 'El comprobante fue rechazado. Revisa los datos e inténtalo nuevamente.'
-                : 'Tu comprobante está en revisión. Te notificaremos cuando sea aprobado.'}
+                ? `Tu pago fue rechazado${summary.rejection_reason ? `: "${summary.rejection_reason}"` : ''}.`
+                : 'Hemos recibido tu comprobante y está en revisión.'}
             </p>
           </div>
         )}
@@ -156,10 +175,37 @@ export function CitizenPaymentsSection({ caseId, paymentRequests, payments }: Pr
 
   const activeRequests = useMemo(() => requests, [requests]);
 
+  const normalizePayment = (payment: any): PublicPayment => ({
+    id: payment.id,
+    case_id: payment.caseId ?? caseId,
+    amount: Number(payment.amount || payment.amount?.toString?.() || 0),
+    currency: payment.currency,
+    status: payment.status,
+    method_type: payment.methodType || payment.method_type,
+    method_code: payment.methodCode || payment.method_code,
+    payer_name: payment.payerName || payment.payer_name,
+    payer_bank: payment.payerBank || payment.payer_bank,
+    bank_reference: payment.bankReference || payment.reference || payment.bank_reference,
+    tx_hash: payment.txHash || payment.tx_hash,
+    paid_at: payment.paidAt || payment.paid_at || null,
+    created_at: payment.createdAt || payment.created_at || new Date().toISOString(),
+    payment_request_id: payment.paymentRequestId || payment.payment_request_id || selected?.id || null,
+    receipt_path: payment.receiptUrl || payment.receipt_path || payment.receiptDocument?.filePath || null,
+    rejection_reason: payment.rejectionReason || payment.rejection_reason || null
+  });
+
   const handleSubmit = async () => {
     if (!selected) return;
     if (!formState.payerName) {
       setError('Indica el nombre del pagador.');
+      return;
+    }
+    if (selected.method_type === 'BANK_TRANSFER' && !formState.payerBank && !formState.bankReference) {
+      setError('Indica el banco emisor o una referencia bancaria.');
+      return;
+    }
+    if (selected.method_type === 'CRYPTO' && !formState.txHash) {
+      setError('Incluye el hash de la transacción cripto.');
       return;
     }
     if (!receiptFile) {
@@ -180,15 +226,34 @@ export function CitizenPaymentsSection({ caseId, paymentRequests, payments }: Pr
       form.append('receipt', receiptFile);
 
       const result = await confirmPaymentRequestPublic(selected.id, form);
+      const normalizedPayment = normalizePayment(result.payment);
       setRequests((prev) =>
         prev.map((r) =>
           r.id === selected.id
-            ? { ...r, status: 'PAID_UNDER_REVIEW', has_payment: true }
+            ? {
+                ...r,
+                status: 'PAID_UNDER_REVIEW',
+                has_payment: true,
+                payment_status: 'PAID_UNDER_REVIEW',
+                payment_summary: {
+                  status: normalizedPayment.status,
+                  payer_name: normalizedPayment.payer_name,
+                  payer_bank: normalizedPayment.payer_bank,
+                  bank_reference: normalizedPayment.bank_reference,
+                  tx_hash: normalizedPayment.tx_hash,
+                  paid_at: normalizedPayment.paid_at,
+                  receipt_path: normalizedPayment.receipt_path,
+                  rejection_reason: normalizedPayment.rejection_reason || null
+                }
+              }
             : r
         )
       );
       if (result.payment) {
-        setPayments((prev) => [...prev.filter((p) => p.id !== result.payment.id), result.payment]);
+        setPayments((prev) => [
+          ...prev.filter((p) => p.id !== normalizedPayment.id),
+          normalizedPayment
+        ]);
       }
       setSuccess('Hemos recibido tu comprobante. Un administrador revisará tu pago.');
       setSelected(null);
@@ -196,7 +261,11 @@ export function CitizenPaymentsSection({ caseId, paymentRequests, payments }: Pr
       setReceiptFile(null);
       return result;
     } catch (err: any) {
-      setError(err?.message || 'No pudimos registrar tu pago. Intenta de nuevo.');
+      if (err?.errors?.receipt) {
+        setError(err.errors.receipt);
+      } else {
+        setError(err?.message || 'No pudimos registrar tu pago. Intenta de nuevo.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -215,12 +284,16 @@ export function CitizenPaymentsSection({ caseId, paymentRequests, payments }: Pr
         {activeRequests.length === 0 && <p className="text-sm text-slate-500">No tienes solicitudes pendientes en este momento.</p>}
         <div className="grid gap-4 lg:grid-cols-2">
           {activeRequests.map((request) => {
-            const paymentSummary = requestPaymentsMap.get(request.id) || null;
+            const summaryFromRequest = (request.payment_summary as unknown as PublicPayment | null) || null;
+            const paymentSummary = requestPaymentsMap.get(request.id) || summaryFromRequest || null;
+            const derivedStatus = deriveRequestStatus(request, paymentSummary);
             const alreadySubmitted = Boolean(request.has_payment || paymentSummary);
+            const rejectionReason = paymentSummary?.rejection_reason;
+
             return (
               <div key={request.id} className="space-y-3">
-                <PaymentRequestCard request={request} summary={paymentSummary} />
-                {!alreadySubmitted && request.status === 'PENDING' && (
+                <PaymentRequestCard request={request} summary={paymentSummary} status={derivedStatus} />
+                {!alreadySubmitted && derivedStatus === 'PENDING' && (
                   <button
                     className="btn btn-primary w-full"
                     onClick={() => setSelected(request)}
@@ -228,8 +301,13 @@ export function CitizenPaymentsSection({ caseId, paymentRequests, payments }: Pr
                     He realizado el pago
                   </button>
                 )}
-                {alreadySubmitted && request.status === 'PAID_UNDER_REVIEW' && (
+                {alreadySubmitted && derivedStatus === 'PAID_UNDER_REVIEW' && (
                   <p className="text-xs text-amber-700">Comprobante enviado. Esperando revisión del administrador.</p>
+                )}
+                {alreadySubmitted && derivedStatus === 'REJECTED' && (
+                  <p className="text-xs text-rose-600">
+                    Tu pago fue rechazado{rejectionReason ? `: "${rejectionReason}"` : ''}.
+                  </p>
                 )}
               </div>
             );

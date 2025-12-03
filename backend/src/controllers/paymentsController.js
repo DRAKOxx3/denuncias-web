@@ -758,6 +758,13 @@ export const confirmPaymentRequestPublic = async (req, res) => {
       });
     }
 
+    if (paymentRequest.dueDate && paymentRequest.dueDate < new Date()) {
+      return res.status(400).json({
+        message: 'La solicitud está vencida y no admite nuevos comprobantes.',
+        errors: { dueDate: 'La solicitud está vencida.' }
+      });
+    }
+
     const existingPayment = await prisma.payment.findFirst({ where: { paymentRequestId: paymentRequest.id } });
     if (existingPayment) {
       return res.status(400).json({
@@ -832,7 +839,9 @@ export const confirmPaymentRequestPublic = async (req, res) => {
       `El ciudadano envió comprobante por ${paymentRequest.amount} ${paymentRequest.currency} vía ${methodLabel}.`
     );
 
-    return res.status(201).json({ success: true, paymentRequest: updatedRequest, payment: createdPayment });
+    return res
+      .status(201)
+      .json({ success: true, paymentRequest: updatedRequest, payment: { ...createdPayment, receiptUrl: buildReceiptUrl(createdPayment.receiptDocument) } });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Error al registrar el comprobante de pago.' });
@@ -856,7 +865,7 @@ export const reviewPayment = async (req, res) => {
     if (!payment) return res.status(404).json({ message: 'Pago no encontrado' });
 
     const nextStatus = action === 'APPROVE' ? 'APPROVED' : 'REJECTED';
-    const nextRequestStatus = action === 'APPROVE' ? 'PAID' : 'PENDING';
+    const nextRequestStatus = action === 'APPROVE' ? 'APPROVED' : 'REJECTED';
 
     const noteSegments = [];
     if (payment.notes) noteSegments.push(payment.notes);
@@ -867,7 +876,8 @@ export const reviewPayment = async (req, res) => {
       where: { id },
       data: {
         status: nextStatus,
-        notes: noteSegments.length ? noteSegments.join(' | ') : payment.notes
+        notes: noteSegments.length ? noteSegments.join(' | ') : payment.notes,
+        rejectionReason: action === 'REJECT' ? rejectionReason || null : null
       },
       include: {
         bankAccount: true,
@@ -902,10 +912,11 @@ export const reviewPayment = async (req, res) => {
       updatedPayment.cryptoWallet?.label
     );
     const adminNote = adminComment ? ` Nota del admin: ${adminComment}.` : '';
+    const rejectionNote = action === 'REJECT' && rejectionReason ? ` Motivo: ${rejectionReason}.` : '';
     await recordTimelineEvent(
       updatedPayment.caseId,
       action === 'APPROVE' ? TIMELINE_EVENT_TYPES.PAYMENT_APPROVED : TIMELINE_EVENT_TYPES.PAYMENT_REJECTED,
-      `${action === 'APPROVE' ? 'Pago aprobado' : 'Pago rechazado'} (${updatedPayment.amount} ${updatedPayment.currency} por ${methodLabel}).${adminNote}`
+      `${action === 'APPROVE' ? 'Pago aprobado' : 'Pago rechazado'} (${updatedPayment.amount} ${updatedPayment.currency} por ${methodLabel}).${adminNote}${rejectionNote}`
     );
 
     return res.json({ ...updatedPayment, receiptUrl: buildReceiptUrl(updatedPayment.receiptDocument) });
