@@ -37,40 +37,62 @@ const mapDocument = (doc) => ({
   creado_en: doc.createdAt.toISOString()
 });
 
-const mapPaymentRequestPublic = (request) => ({
-  id: request.id,
-  case_id: request.caseId,
-  amount: toNumber(request.amount),
-  currency: request.currency,
-  method_type: request.methodType,
-  method_code: request.methodCode,
-  status: request.status,
-  due_date: request.dueDate ? request.dueDate.toISOString() : null,
-  notes_for_client: request.notesForClient,
-  qr_image_url: request.qrImageUrl,
-  bank_account: request.bankAccount
-    ? {
-        id: request.bankAccount.id,
-        label: request.bankAccount.label,
-        bankName: request.bankAccount.bankName,
-        iban: request.bankAccount.iban,
-        currency: request.bankAccount.currency,
-        bic: request.bankAccount.bic
-      }
-    : null,
-  crypto_wallet: request.cryptoWallet
-    ? {
-        id: request.cryptoWallet.id,
-        label: request.cryptoWallet.label,
-        network: request.cryptoWallet.network,
-        address: request.cryptoWallet.address,
-        asset: request.cryptoWallet.asset,
-        currency: request.cryptoWallet.currency
-      }
-    : null,
-  created_at: request.createdAt.toISOString(),
-  updated_at: request.updatedAt.toISOString()
-});
+const maskIban = (value) => {
+  if (!value) return '';
+  const clean = value.replace(/\s+/g, '');
+  if (clean.length <= 4) return clean;
+  const visible = clean.slice(-4);
+  return `•••• ${visible}`;
+};
+
+const mapPaymentRequestPublic = (request) => {
+  const hasReceipt = (request.payments || []).length > 0;
+  const normalizedStatus = (() => {
+    if (['PAID', 'APPROVED'].includes(request.status)) return 'APPROVED';
+    if (['REJECTED', 'CANCELLED'].includes(request.status)) return 'REJECTED';
+    if (['EXPIRED'].includes(request.status)) return 'EXPIRED';
+    if (['AWAITING_CONFIRMATION', 'PAID_UNDER_REVIEW'].includes(request.status)) return 'PAID_UNDER_REVIEW';
+    return 'PENDING';
+  })();
+
+  return {
+    id: request.id,
+    case_id: request.caseId,
+    amount: toNumber(request.amount),
+    currency: request.currency,
+    method_type: request.methodType,
+    method_code: request.methodCode,
+    status: normalizedStatus,
+    due_date: request.dueDate ? request.dueDate.toISOString() : null,
+    created_at: request.createdAt.toISOString(),
+    notes_for_client: request.notesForClient,
+    qr_image_url: request.qrImageUrl,
+    has_payment: hasReceipt,
+    bank_account: request.bankAccount
+      ? {
+          id: request.bankAccount.id,
+          label: request.bankAccount.label,
+          bankName: request.bankAccount.bankName,
+          iban: maskIban(request.bankAccount.iban),
+          currency: request.bankAccount.currency,
+          bic: request.bankAccount.bic
+        }
+      : null,
+    crypto_wallet: request.cryptoWallet
+      ? {
+          id: request.cryptoWallet.id,
+          label: request.cryptoWallet.label,
+          network: request.cryptoWallet.network,
+          address: request.cryptoWallet.address,
+          asset: request.cryptoWallet.asset,
+          currency: request.cryptoWallet.currency,
+          qrImageUrl: request.qrImageUrl || null
+        }
+      : null,
+    created_at: request.createdAt.toISOString(),
+    updated_at: request.updatedAt.toISOString()
+  };
+};
 
 const mapPayment = (payment) => ({
   id: payment.id,
@@ -113,10 +135,10 @@ export const searchCase = async (req, res) => {
     const [timeline, documents, payments, paymentRequests] = await Promise.all([
       prisma.timelineEvent.findMany({ where: { caseId: foundCase.id }, orderBy: { date: 'asc' } }),
       prisma.document.findMany({ where: { caseId: foundCase.id, isPublic: true } }),
-      prisma.payment.findMany({ where: { caseId: foundCase.id, status: 'APPROVED' }, include: { receiptDocument: true } }),
+      prisma.payment.findMany({ where: { caseId: foundCase.id }, include: { receiptDocument: true } }),
       prisma.paymentRequest.findMany({
-        where: { caseId: foundCase.id, status: { in: ['PENDING', 'SENT', 'AWAITING_CONFIRMATION'] } },
-        include: { bankAccount: true, cryptoWallet: true },
+        where: { caseId: foundCase.id },
+        include: { bankAccount: true, cryptoWallet: true, payments: true },
         orderBy: { createdAt: 'desc' }
       })
     ]);

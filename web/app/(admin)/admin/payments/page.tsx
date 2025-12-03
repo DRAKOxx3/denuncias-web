@@ -13,13 +13,15 @@ import {
   updatePayment,
   updatePaymentRequest,
   reviewPayment,
-  type Payment,
-  type PaymentRequest,
+  type PaymentRequestWithRelations,
+  type PaymentWithRelations,
   type PaymentRequestStatus,
   type PaymentStatus
 } from '@/lib/api';
 import { useAdminPayments } from './useAdminPayments';
-import { usePaymentResources } from './usePaymentResources';
+import { usePaymentResources } from '@/lib/hooks/usePaymentResources';
+type PaymentRequest = PaymentRequestWithRelations;
+type Payment = PaymentWithRelations;
 import Link from 'next/link';
 
 const badgeClass = (status: string) => {
@@ -82,7 +84,7 @@ function MethodSummary({ request }: { request: PaymentRequest }) {
 }
 
 export default function AdminPaymentsPage() {
-  const { paymentRequests, payments, isLoading, error, reload } = useAdminPayments();
+  const { paymentRequests, payments, isLoading, error, reload, setPaymentRequests, setPayments } = useAdminPayments();
   const { cases, bankAccounts, cryptoWallets, isLoading: loadingResources, isError: resourceError } =
     usePaymentResources();
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -121,6 +123,8 @@ export default function AdminPaymentsPage() {
     paidAt: '',
     notes: ''
   });
+  const [requestFieldErrors, setRequestFieldErrors] = useState<Record<string, string>>({});
+  const [paymentFieldErrors, setPaymentFieldErrors] = useState<Record<string, string>>({});
 
   const [bankForm, setBankForm] = useState({
     label: '',
@@ -141,6 +145,12 @@ export default function AdminPaymentsPage() {
     notes: ''
   });
 
+  const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
+  const [reviewNote, setReviewNote] = useState('');
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [isReviewing, setIsReviewing] = useState(false);
+
   useEffect(() => {
     if (resourceError) setStatusMessage(resourceError);
   }, [resourceError]);
@@ -160,6 +170,31 @@ export default function AdminPaymentsPage() {
     e.preventDefault();
     const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
     if (!token) return;
+    const fieldErrors: Record<string, string> = {};
+    if (!requestForm.caseId) fieldErrors.caseId = 'Selecciona un caso.';
+    if (!requestForm.amount || Number(requestForm.amount) <= 0) fieldErrors.amount = 'El importe debe ser mayor a 0.';
+    if (!requestForm.currency) fieldErrors.currency = 'Indica la moneda (ej. EUR).';
+    if (!requestForm.methodCode) fieldErrors.methodCode = 'Ingresa el código del método.';
+    if (requestForm.methodType === 'BANK_TRANSFER' && !requestForm.bankAccountId) {
+      fieldErrors.bankAccountId = 'Selecciona una cuenta bancaria activa.';
+    }
+    if (requestForm.methodType === 'CRYPTO' && !requestForm.cryptoWalletId) {
+      fieldErrors.cryptoWalletId = 'Selecciona una wallet activa.';
+    }
+    if (requestForm.dueDate) {
+      const parsed = new Date(requestForm.dueDate);
+      if (Number.isNaN(parsed.getTime()) || parsed < new Date()) {
+        fieldErrors.dueDate = 'La fecha de vencimiento no puede estar en el pasado.';
+      }
+    }
+
+    if (Object.keys(fieldErrors).length) {
+      setRequestFieldErrors(fieldErrors);
+      setStatusMessage('Corrige los campos marcados.');
+      return;
+    }
+
+    setRequestFieldErrors({});
     try {
       setStatusMessage(null);
       await createPaymentRequest(token, Number(requestForm.caseId), {
@@ -197,6 +232,7 @@ export default function AdminPaymentsPage() {
       reload();
     } catch (err: any) {
       setStatusMessage(err?.message || 'No se pudo crear la solicitud.');
+      if (err?.errors) setRequestFieldErrors(err.errors);
     }
   };
 
@@ -204,6 +240,25 @@ export default function AdminPaymentsPage() {
     e.preventDefault();
     const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
     if (!token) return;
+    const fieldErrors: Record<string, string> = {};
+    if (!paymentForm.caseId) fieldErrors.caseId = 'Selecciona un caso.';
+    if (!paymentForm.amount || Number(paymentForm.amount) <= 0) fieldErrors.amount = 'El importe debe ser mayor a 0.';
+    if (!paymentForm.currency) fieldErrors.currency = 'Indica la moneda del pago.';
+    if (!paymentForm.methodCode) fieldErrors.methodCode = 'Ingresa el código del método.';
+    if (paymentForm.methodType === 'BANK_TRANSFER' && !paymentForm.bankAccountId) {
+      fieldErrors.bankAccountId = 'Selecciona una cuenta bancaria activa.';
+    }
+    if (paymentForm.methodType === 'CRYPTO' && !paymentForm.cryptoWalletId) {
+      fieldErrors.cryptoWalletId = 'Selecciona una wallet activa.';
+    }
+
+    if (Object.keys(fieldErrors).length) {
+      setPaymentFieldErrors(fieldErrors);
+      setStatusMessage('Corrige los campos marcados.');
+      return;
+    }
+
+    setPaymentFieldErrors({});
     try {
       setStatusMessage(null);
       await createPayment(token, Number(paymentForm.caseId), {
@@ -249,6 +304,7 @@ export default function AdminPaymentsPage() {
       reload();
     } catch (err: any) {
       setStatusMessage(err?.message || 'No se pudo registrar el pago.');
+      if (err?.errors) setPaymentFieldErrors(err.errors);
     }
   };
 
@@ -332,14 +388,44 @@ export default function AdminPaymentsPage() {
     }
   };
 
-  const handleReviewPaymentAction = async (id: number, action: 'APPROVE' | 'REJECT') => {
+  const handleOpenReview = (payment: Payment) => {
+    setSelectedPayment(payment);
+    setReviewNote('');
+    setRejectionReason('');
+    setReviewError(null);
+  };
+
+  const handleReviewPayment = async (action: 'APPROVE' | 'REJECT') => {
+    if (!selectedPayment) return;
     const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
     if (!token) return;
+    setIsReviewing(true);
+    setReviewError(null);
     try {
-      await reviewPayment(token, id, action);
-      reload();
+      const updated = await reviewPayment(
+        token,
+        selectedPayment.id,
+        action,
+        reviewNote || undefined,
+        action === 'REJECT' ? rejectionReason || undefined : undefined
+      );
+      setPayments((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      if (updated.paymentRequestId) {
+        setPaymentRequests((prev) =>
+          prev.map((pr) =>
+            pr.id === updated.paymentRequestId
+              ? { ...pr, status: updated.paymentRequest?.status || (action === 'APPROVE' ? 'PAID' : 'PENDING') }
+              : pr
+          )
+        );
+      }
+      setSelectedPayment(null);
+      setReviewNote('');
+      setRejectionReason('');
     } catch (err: any) {
-      setStatusMessage(err?.message || 'No se pudo revisar el pago.');
+      setReviewError(err?.message || 'No se pudo revisar el pago.');
+    } finally {
+      setIsReviewing(false);
     }
   };
 
@@ -585,10 +671,10 @@ export default function AdminPaymentsPage() {
                     {p.methodType === 'CRYPTO' ? 'Cripto' : 'Transferencia'} · {p.methodCode}
                   </td>
                   <td className="p-3 align-top text-xs">
-                    {p.receiptDocument?.filePath ? (
+                    {p.receiptUrl || p.receiptDocument?.filePath ? (
                       <a
                         className="text-primary underline"
-                        href={`${API_BASE}${p.receiptDocument.filePath}`}
+                        href={p.receiptUrl || `${API_BASE}${p.receiptDocument?.filePath}`}
                         target="_blank"
                         rel="noreferrer"
                       >
@@ -603,18 +689,9 @@ export default function AdminPaymentsPage() {
                     <div>{p.payerBank || p.txHash || p.bankReference || '-'}</div>
                     <div>{p.paidAt ? new Date(p.paidAt).toLocaleString() : '-'}</div>
                   </td>
-                  <td className="p-3 align-top space-y-2 min-w-[140px]">
-                    <button
-                      className="button-primary w-full"
-                      onClick={() => handleReviewPaymentAction(p.id, 'APPROVE')}
-                    >
-                      Aprobar
-                    </button>
-                    <button
-                      className="button-secondary w-full"
-                      onClick={() => handleReviewPaymentAction(p.id, 'REJECT')}
-                    >
-                      Rechazar
+                  <td className="p-3 align-top min-w-[140px]">
+                    <button className="button-primary w-full" onClick={() => handleOpenReview(p)}>
+                      Revisar
                     </button>
                   </td>
                 </tr>
@@ -683,7 +760,7 @@ export default function AdminPaymentsPage() {
                         value={pr.status}
                         onChange={(e) => handleUpdateRequestStatus(pr.id, e.target.value as PaymentRequestStatus)}
                       >
-                        {['PENDING', 'SENT', 'AWAITING_CONFIRMATION', 'PAID', 'APPROVED', 'CANCELLED', 'EXPIRED', 'REJECTED'].map((s) => (
+                        {['PENDING', 'SENT', 'AWAITING_CONFIRMATION', 'PAID_UNDER_REVIEW', 'PAID', 'APPROVED', 'CANCELLED', 'EXPIRED', 'REJECTED'].map((s) => (
                           <option key={s} value={s}>
                             {s}
                           </option>
@@ -757,10 +834,10 @@ export default function AdminPaymentsPage() {
                     <div>Pagado: {formatDate(p.paidAt as any)}</div>
                   </td>
                   <td className="p-3 align-top text-xs text-slate-600">
-                    {p.receiptDocument?.filePath ? (
+                    {p.receiptUrl || p.receiptDocument?.filePath ? (
                       <a
                         className="text-primary underline"
-                        href={`${API_BASE}${p.receiptDocument.filePath}`}
+                        href={p.receiptUrl || `${API_BASE}${p.receiptDocument?.filePath}`}
                         target="_blank"
                         rel="noreferrer"
                       >
@@ -826,6 +903,7 @@ export default function AdminPaymentsPage() {
                       </option>
                     ))}
                   </select>
+                  {requestFieldErrors.caseId && <p className="text-xs text-rose-600">{requestFieldErrors.caseId}</p>}
                 </label>
                 <label className="space-y-1 text-sm">
                   <span className="font-semibold text-slate-700">Importe</span>
@@ -837,6 +915,7 @@ export default function AdminPaymentsPage() {
                     value={requestForm.amount}
                     onChange={(e) => setRequestForm({ ...requestForm, amount: e.target.value })}
                   />
+                  {requestFieldErrors.amount && <p className="text-xs text-rose-600">{requestFieldErrors.amount}</p>}
                 </label>
                 <label className="space-y-1 text-sm">
                   <span className="font-semibold text-slate-700">Moneda</span>
@@ -845,6 +924,7 @@ export default function AdminPaymentsPage() {
                     value={requestForm.currency}
                     onChange={(e) => setRequestForm({ ...requestForm, currency: e.target.value })}
                   />
+                  {requestFieldErrors.currency && <p className="text-xs text-rose-600">{requestFieldErrors.currency}</p>}
                 </label>
                 <label className="space-y-1 text-sm">
                   <span className="font-semibold text-slate-700">Método</span>
@@ -856,6 +936,7 @@ export default function AdminPaymentsPage() {
                     <option value="BANK_TRANSFER">Transferencia bancaria</option>
                     <option value="CRYPTO">Criptomonedas</option>
                   </select>
+                  {requestFieldErrors.methodType && <p className="text-xs text-rose-600">{requestFieldErrors.methodType}</p>}
                 </label>
               </div>
 
@@ -869,6 +950,7 @@ export default function AdminPaymentsPage() {
                       onChange={(e) => setRequestForm({ ...requestForm, methodCode: e.target.value })}
                       placeholder="SEPA"
                     />
+                    {requestFieldErrors.methodCode && <p className="text-xs text-rose-600">{requestFieldErrors.methodCode}</p>}
                   </label>
                   <label className="space-y-1 text-sm">
                     <span className="font-semibold text-slate-700">Cuenta bancaria</span>
@@ -884,6 +966,9 @@ export default function AdminPaymentsPage() {
                       </option>
                     ))}
                   </select>
+                  {requestFieldErrors.bankAccountId && (
+                    <p className="text-xs text-rose-600">{requestFieldErrors.bankAccountId}</p>
+                  )}
                   {bankAccounts.length === 0 && (
                     <p className="text-xs text-amber-700">No hay cuentas bancarias activas. Carga la semilla o crea una desde el backend.</p>
                   )}
@@ -914,6 +999,9 @@ export default function AdminPaymentsPage() {
                       </option>
                     ))}
                   </select>
+                    {requestFieldErrors.cryptoWalletId && (
+                      <p className="text-xs text-rose-600">{requestFieldErrors.cryptoWalletId}</p>
+                    )}
                   {cryptoWallets.length === 0 && (
                     <p className="text-xs text-amber-700">No hay wallets configuradas. Revisa la semilla o crea una wallet en backend.</p>
                   )}
@@ -946,6 +1034,7 @@ export default function AdminPaymentsPage() {
                     value={requestForm.dueDate}
                     onChange={(e) => setRequestForm({ ...requestForm, dueDate: e.target.value })}
                   />
+                  {requestFieldErrors.dueDate && <p className="text-xs text-rose-600">{requestFieldErrors.dueDate}</p>}
                 </label>
                 <label className="space-y-1 text-sm">
                   <span className="font-semibold text-slate-700">Mensaje para cliente</span>
@@ -1008,6 +1097,7 @@ export default function AdminPaymentsPage() {
                       </option>
                     ))}
                   </select>
+                  {paymentFieldErrors.caseId && <p className="text-xs text-rose-600">{paymentFieldErrors.caseId}</p>}
                 </label>
                 <label className="space-y-1 text-sm">
                   <span className="font-semibold text-slate-700">Solicitud asociada (opcional)</span>
@@ -1034,6 +1124,7 @@ export default function AdminPaymentsPage() {
                     value={paymentForm.amount}
                     onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
                   />
+                  {paymentFieldErrors.amount && <p className="text-xs text-rose-600">{paymentFieldErrors.amount}</p>}
                 </label>
                 <label className="space-y-1 text-sm">
                   <span className="font-semibold text-slate-700">Moneda</span>
@@ -1042,6 +1133,7 @@ export default function AdminPaymentsPage() {
                     value={paymentForm.currency}
                     onChange={(e) => setPaymentForm({ ...paymentForm, currency: e.target.value })}
                   />
+                  {paymentFieldErrors.currency && <p className="text-xs text-rose-600">{paymentFieldErrors.currency}</p>}
                 </label>
                 <label className="space-y-1 text-sm">
                   <span className="font-semibold text-slate-700">Método</span>
@@ -1053,6 +1145,7 @@ export default function AdminPaymentsPage() {
                     <option value="BANK_TRANSFER">Transferencia bancaria</option>
                     <option value="CRYPTO">Criptomonedas</option>
                   </select>
+                  {paymentFieldErrors.methodType && <p className="text-xs text-rose-600">{paymentFieldErrors.methodType}</p>}
                 </label>
                 <label className="space-y-1 text-sm">
                   <span className="font-semibold text-slate-700">Código método</span>
@@ -1062,6 +1155,7 @@ export default function AdminPaymentsPage() {
                     onChange={(e) => setPaymentForm({ ...paymentForm, methodCode: e.target.value })}
                     placeholder="SEPA, BTC, USDT_TRC20"
                   />
+                  {paymentFieldErrors.methodCode && <p className="text-xs text-rose-600">{paymentFieldErrors.methodCode}</p>}
                 </label>
               </div>
 
@@ -1081,6 +1175,9 @@ export default function AdminPaymentsPage() {
                         </option>
                       ))}
                     </select>
+                    {paymentFieldErrors.bankAccountId && (
+                      <p className="text-xs text-rose-600">{paymentFieldErrors.bankAccountId}</p>
+                    )}
                     {bankAccounts.length === 0 && (
                       <p className="text-xs text-amber-700">No hay cuentas bancarias activas. Ejecuta la semilla o registra una cuenta.</p>
                     )}
@@ -1098,22 +1195,25 @@ export default function AdminPaymentsPage() {
                 <div className="grid md:grid-cols-2 gap-4">
                   <label className="space-y-1 text-sm">
                     <span className="font-semibold text-slate-700">Wallet</span>
-                    <select
-                      className="w-full border rounded-md px-3 py-2"
-                      value={paymentForm.cryptoWalletId}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, cryptoWalletId: e.target.value })}
-                    >
-                      <option value="">Selecciona wallet</option>
-                      {cryptoWallets.map((w) => (
-                        <option key={w.id} value={w.id}>
-                          {w.label} · {w.asset} ({w.network})
-                        </option>
-                      ))}
-                    </select>
-                    {cryptoWallets.length === 0 && (
-                      <p className="text-xs text-amber-700">No hay wallets configuradas. Revisa la semilla o crea una wallet en backend.</p>
+                  <select
+                    className="w-full border rounded-md px-3 py-2"
+                    value={paymentForm.cryptoWalletId}
+                    onChange={(e) => setPaymentForm({ ...paymentForm, cryptoWalletId: e.target.value })}
+                  >
+                    <option value="">Selecciona wallet</option>
+                    {cryptoWallets.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.label} · {w.asset} ({w.network})
+                      </option>
+                    ))}
+                  </select>
+                    {paymentFieldErrors.cryptoWalletId && (
+                      <p className="text-xs text-rose-600">{paymentFieldErrors.cryptoWalletId}</p>
                     )}
-                  </label>
+                  {cryptoWallets.length === 0 && (
+                    <p className="text-xs text-amber-700">No hay wallets configuradas. Revisa la semilla o crea una wallet en backend.</p>
+                  )}
+                </label>
                   <label className="space-y-1 text-sm">
                     <span className="font-semibold text-slate-700">Tx Hash</span>
                     <input
@@ -1185,6 +1285,122 @@ export default function AdminPaymentsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {selectedPayment && (
+        <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-30 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <div>
+                <p className="text-xs uppercase tracking-widest text-primary/70">Revisión de pago</p>
+                <h3 className="text-lg font-semibold text-primary">
+                  Caso {selectedPayment.case?.caseNumber || selectedPayment.caseId}
+                </h3>
+                <p className="text-xs text-slate-600">{selectedPayment.case?.citizenName || 'Ciudadano'}</p>
+              </div>
+              <button className="text-slate-500 hover:text-slate-800" onClick={() => setSelectedPayment(null)}>
+                ✕
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="grid md:grid-cols-2 gap-4 text-sm text-slate-700">
+                <div className="space-y-1">
+                  <p className="font-semibold text-primary text-base">
+                    {selectedPayment.amount} {selectedPayment.currency}
+                  </p>
+                  <p className="text-xs text-slate-600">
+                    {selectedPayment.methodType === 'CRYPTO' ? 'Cripto' : 'Transferencia'} · {selectedPayment.methodCode}
+                  </p>
+                  {selectedPayment.paymentRequest && (
+                    <p className="text-xs text-slate-600">
+                      Solicitud #{selectedPayment.paymentRequest.id} · {selectedPayment.paymentRequest.amount}{' '}
+                      {selectedPayment.paymentRequest.currency}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <p className="font-semibold text-slate-700">Pagador</p>
+                  <p>{selectedPayment.payerName || '—'}</p>
+                  <p className="text-xs text-slate-600">{selectedPayment.payerBank || selectedPayment.txHash || selectedPayment.reference || '—'}</p>
+                  <p className="text-xs text-slate-600">Pagado: {formatDate(selectedPayment.paidAt as any)}</p>
+                </div>
+              </div>
+
+              <div className="text-sm text-slate-700 space-y-1">
+                <p className="font-semibold">Comprobante</p>
+                {selectedPayment.receiptUrl || selectedPayment.receiptDocument?.filePath ? (
+                  <a
+                    className="text-primary underline"
+                    href={
+                      selectedPayment.receiptUrl ||
+                      (selectedPayment.receiptDocument?.filePath
+                        ? `${API_BASE}${selectedPayment.receiptDocument.filePath}`
+                        : '#')
+                    }
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Ver comprobante
+                  </a>
+                ) : (
+                  <p className="text-slate-500">No se adjuntó comprobante.</p>
+                )}
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <label className="space-y-1 text-sm">
+                  <span className="font-semibold text-slate-700">Nota para el expediente</span>
+                  <textarea
+                    className="w-full border rounded-md px-3 py-2"
+                    rows={3}
+                    value={reviewNote}
+                    onChange={(e) => setReviewNote(e.target.value)}
+                    placeholder="Comentario opcional"
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="font-semibold text-slate-700">Motivo de rechazo (opcional)</span>
+                  <textarea
+                    className="w-full border rounded-md px-3 py-2"
+                    rows={3}
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    placeholder="Detalle de rechazo"
+                  />
+                </label>
+              </div>
+
+              {reviewError && <p className="text-sm text-rose-600">{reviewError}</p>}
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => setSelectedPayment(null)}
+                  disabled={isReviewing}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="button-secondary border-rose-200 text-rose-700"
+                  disabled={isReviewing}
+                  onClick={() => handleReviewPayment('REJECT')}
+                >
+                  {isReviewing ? 'Guardando…' : 'Rechazar'}
+                </button>
+                <button
+                  type="button"
+                  className="button-primary"
+                  disabled={isReviewing}
+                  onClick={() => handleReviewPayment('APPROVE')}
+                >
+                  {isReviewing ? 'Guardando…' : 'Aprobar'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

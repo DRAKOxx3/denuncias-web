@@ -2,13 +2,20 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  listPaymentRequestsAdmin,
-  listPaymentsAdmin,
+  getCasePayments,
   type PaymentRequestWithRelations,
   type PaymentWithRelations
 } from '@/lib/api';
 
-export function useAdminPayments() {
+type UseCasePaymentsState = {
+  paymentRequests: PaymentRequestWithRelations[];
+  payments: PaymentWithRelations[];
+  isLoading: boolean;
+  error: string | null;
+  reload: () => void;
+};
+
+export function useCasePayments(caseId: number): UseCasePaymentsState {
   const [paymentRequests, setPaymentRequests] = useState<PaymentRequestWithRelations[]>([]);
   const [payments, setPayments] = useState<PaymentWithRelations[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -23,18 +30,16 @@ export function useAdminPayments() {
     setIsLoading(true);
     setError(null);
     try {
-      const [requests, paymentList] = await Promise.all([
-        listPaymentRequestsAdmin(token),
-        listPaymentsAdmin(token)
-      ]);
-      setPaymentRequests(requests || []);
-      setPayments(paymentList || []);
-    } catch (err: any) {
-      setError(err?.message || 'No se pudieron cargar los pagos.');
+      const data = await getCasePayments(token, caseId);
+      setPaymentRequests(data.paymentRequests || []);
+      setPayments(data.payments || []);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'No se pudieron cargar los pagos.';
+      setError(message);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [caseId]);
 
   useEffect(() => {
     reload();
@@ -45,8 +50,6 @@ export function useAdminPayments() {
     payments,
     isLoading,
     error,
-    reload,
-    setPaymentRequests,
-    setPayments
+    reload
   };
 }

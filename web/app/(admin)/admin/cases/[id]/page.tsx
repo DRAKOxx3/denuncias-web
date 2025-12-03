@@ -16,11 +16,18 @@ import type {
   PaymentRequestStatus,
   PaymentStatus
 } from '@/lib/api';
-import { useCasePayments } from './useCasePayments';
-import { usePaymentResources } from '../../payments/usePaymentResources';
+import { useCasePayments } from '@/lib/hooks/useCasePayments';
+import { usePaymentResources } from '@/lib/hooks/usePaymentResources';
 
-const paymentRequestStatuses: PaymentRequestStatus[] = ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED', 'EXPIRED'];
-const paymentStatuses: PaymentStatus[] = ['PENDING', 'APPROVED', 'REJECTED'];
+const paymentRequestStatuses: PaymentRequestStatus[] = [
+  'PENDING',
+  'PAID_UNDER_REVIEW',
+  'APPROVED',
+  'REJECTED',
+  'CANCELLED',
+  'EXPIRED'
+];
+const paymentStatuses: PaymentStatus[] = ['PENDING', 'PENDING_REVIEW', 'APPROVED', 'REJECTED'];
 
 function formatDate(value?: string | null) {
   if (!value) return '—';
@@ -36,7 +43,8 @@ function formatAmount(amount?: number, currency?: string) {
 function StatusBadge({ status }: { status: PaymentRequestStatus | PaymentStatus }) {
   const statusKey = status.toUpperCase();
   let classes = 'bg-slate-100 text-slate-700 border-slate-200';
-  if (statusKey === 'PENDING') classes = 'bg-amber-100 text-amber-800 border-amber-200';
+  if (statusKey === 'PENDING' || statusKey === 'PENDING_REVIEW')
+    classes = 'bg-amber-100 text-amber-800 border-amber-200';
   if (statusKey === 'APPROVED') classes = 'bg-emerald-100 text-emerald-800 border-emerald-200';
   if (statusKey === 'REJECTED' || statusKey === 'CANCELLED')
     classes = 'bg-rose-100 text-rose-800 border-rose-200';
@@ -125,6 +133,8 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
   });
   const [submittingRequest, setSubmittingRequest] = useState(false);
   const [submittingPayment, setSubmittingPayment] = useState(false);
+  const [requestFieldErrors, setRequestFieldErrors] = useState<Record<string, string>>({});
+  const [paymentFieldErrors, setPaymentFieldErrors] = useState<Record<string, string>>({});
 
   const caseId = Number(params.id);
   const { paymentRequests, payments, isLoading: isLoadingPayments, error: paymentsError, reload } =
@@ -220,6 +230,36 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
       setStatus('Necesitas iniciar sesión.');
       return;
     }
+    const fieldErrors: Record<string, string> = {};
+    if (!requestForm.amount || Number(requestForm.amount) <= 0) {
+      fieldErrors.amount = 'El importe debe ser mayor a 0.';
+    }
+    if (!requestForm.currency) {
+      fieldErrors.currency = 'Indica la moneda (ej. EUR).';
+    }
+    if (!requestForm.methodCode) {
+      fieldErrors.methodCode = 'Ingresa el código del método (SEPA, BTC, USDT_TRC20).';
+    }
+    if (requestForm.methodType === 'BANK_TRANSFER' && !requestForm.bankAccountId) {
+      fieldErrors.bankAccountId = 'Selecciona una cuenta bancaria activa.';
+    }
+    if (requestForm.methodType === 'CRYPTO' && !requestForm.cryptoWalletId) {
+      fieldErrors.cryptoWalletId = 'Selecciona una wallet activa.';
+    }
+    if (requestForm.dueDate) {
+      const parsed = new Date(requestForm.dueDate);
+      if (Number.isNaN(parsed.getTime()) || parsed < new Date()) {
+        fieldErrors.dueDate = 'La fecha de vencimiento no puede estar en el pasado.';
+      }
+    }
+
+    if (Object.keys(fieldErrors).length) {
+      setRequestFieldErrors(fieldErrors);
+      setStatus('Corrige los campos marcados.');
+      return;
+    }
+
+    setRequestFieldErrors({});
     setSubmittingRequest(true);
     try {
       await createPaymentRequest(token, caseId, {
@@ -248,8 +288,10 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
         notesForClient: '',
         internalNotes: ''
       });
+      setStatus('Solicitud creada correctamente.');
     } catch (error: any) {
       setStatus(error?.message || 'No se pudo crear la solicitud de pago.');
+      if (error?.errors) setRequestFieldErrors(error.errors);
     } finally {
       setSubmittingRequest(false);
     }
@@ -276,6 +318,23 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
       setStatus('Necesitas iniciar sesión.');
       return;
     }
+    const fieldErrors: Record<string, string> = {};
+    if (!paymentForm.amount || Number(paymentForm.amount) <= 0) fieldErrors.amount = 'El importe debe ser mayor a 0.';
+    if (!paymentForm.currency) fieldErrors.currency = 'Indica la moneda del pago.';
+    if (!paymentForm.methodCode) fieldErrors.methodCode = 'Ingresa el código del método.';
+    if (paymentForm.methodType === 'BANK_TRANSFER' && !paymentForm.bankAccountId) {
+      fieldErrors.bankAccountId = 'Selecciona una cuenta bancaria activa.';
+    }
+    if (paymentForm.methodType === 'CRYPTO' && !paymentForm.cryptoWalletId) {
+      fieldErrors.cryptoWalletId = 'Selecciona una wallet activa.';
+    }
+    if (Object.keys(fieldErrors).length) {
+      setPaymentFieldErrors(fieldErrors);
+      setStatus('Corrige los campos marcados.');
+      return;
+    }
+
+    setPaymentFieldErrors({});
     setSubmittingPayment(true);
     try {
       await createPayment(token, caseId, {
@@ -312,8 +371,10 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
         paidAt: '',
         notes: ''
       });
+      setStatus('Pago registrado correctamente.');
     } catch (error: any) {
       setStatus(error?.message || 'No se pudo registrar el pago.');
+      if (error?.errors) setPaymentFieldErrors(error.errors);
     } finally {
       setSubmittingPayment(false);
     }
@@ -619,6 +680,7 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
                   value={requestForm.amount}
                   onChange={(e) => setRequestForm({ ...requestForm, amount: e.target.value })}
                 />
+                {requestFieldErrors.amount && <p className="text-xs text-rose-600">{requestFieldErrors.amount}</p>}
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Moneda
@@ -627,12 +689,14 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
                   value={requestForm.currency}
                   onChange={(e) => setRequestForm({ ...requestForm, currency: e.target.value })}
                 />
+                {requestFieldErrors.currency && <p className="text-xs text-rose-600">{requestFieldErrors.currency}</p>}
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Tipo de método
                 {methodSelector(requestForm.methodType, (v) =>
                   setRequestForm({ ...requestForm, methodType: v, bankAccountId: '', cryptoWalletId: '' })
                 )}
+                {requestFieldErrors.methodType && <p className="text-xs text-rose-600">{requestFieldErrors.methodType}</p>}
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Código de método
@@ -642,6 +706,7 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
                   onChange={(e) => setRequestForm({ ...requestForm, methodCode: e.target.value })}
                   placeholder="SEPA, BTC, USDT_TRC20"
                 />
+                {requestFieldErrors.methodCode && <p className="text-xs text-rose-600">{requestFieldErrors.methodCode}</p>}
               </label>
               {requestForm.methodType === 'BANK_TRANSFER' && (
                 <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
@@ -658,6 +723,9 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
                       </option>
                     ))}
                   </select>
+                  {requestFieldErrors.bankAccountId && (
+                    <span className="text-xs text-rose-600">{requestFieldErrors.bankAccountId}</span>
+                  )}
                   {bankOptionsForRequest.length === 0 && (
                     <span className="text-xs text-amber-700">No hay cuentas bancarias activas disponibles.</span>
                   )}
@@ -678,6 +746,9 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
                       </option>
                     ))}
                   </select>
+                  {requestFieldErrors.cryptoWalletId && (
+                    <span className="text-xs text-rose-600">{requestFieldErrors.cryptoWalletId}</span>
+                  )}
                   {walletOptionsForRequest.length === 0 && (
                     <span className="text-xs text-amber-700">No hay wallets activas disponibles.</span>
                   )}
@@ -691,6 +762,7 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
                   value={requestForm.dueDate}
                   onChange={(e) => setRequestForm({ ...requestForm, dueDate: e.target.value })}
                 />
+                {requestFieldErrors.dueDate && <p className="text-xs text-rose-600">{requestFieldErrors.dueDate}</p>}
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 URL QR (cripto)
@@ -782,6 +854,7 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
                   value={paymentForm.amount}
                   onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
                 />
+                {paymentFieldErrors.amount && <p className="text-xs text-rose-600">{paymentFieldErrors.amount}</p>}
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Moneda
@@ -790,12 +863,14 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
                   value={paymentForm.currency}
                   onChange={(e) => setPaymentForm({ ...paymentForm, currency: e.target.value })}
                 />
+                {paymentFieldErrors.currency && <p className="text-xs text-rose-600">{paymentFieldErrors.currency}</p>}
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Tipo de método
                 {methodSelector(paymentForm.methodType, (v) =>
                   setPaymentForm({ ...paymentForm, methodType: v, bankAccountId: '', cryptoWalletId: '' })
                 )}
+                {paymentFieldErrors.methodType && <p className="text-xs text-rose-600">{paymentFieldErrors.methodType}</p>}
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Código de método
@@ -805,6 +880,7 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
                   onChange={(e) => setPaymentForm({ ...paymentForm, methodCode: e.target.value })}
                   placeholder="SEPA, BTC, USDT_TRC20"
                 />
+                {paymentFieldErrors.methodCode && <p className="text-xs text-rose-600">{paymentFieldErrors.methodCode}</p>}
               </label>
               {paymentForm.methodType === 'BANK_TRANSFER' && (
                 <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
@@ -821,6 +897,9 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
                       </option>
                     ))}
                   </select>
+                  {paymentFieldErrors.bankAccountId && (
+                    <span className="text-xs text-rose-600">{paymentFieldErrors.bankAccountId}</span>
+                  )}
                   {bankOptionsForPayment.length === 0 && (
                     <span className="text-xs text-amber-700">No hay cuentas bancarias activas disponibles.</span>
                   )}
@@ -841,6 +920,9 @@ export default function AdminEditCasePage({ params }: { params: { id: string } }
                       </option>
                     ))}
                   </select>
+                  {paymentFieldErrors.cryptoWalletId && (
+                    <span className="text-xs text-rose-600">{paymentFieldErrors.cryptoWalletId}</span>
+                  )}
                   {walletOptionsForPayment.length === 0 && (
                     <span className="text-xs text-amber-700">No hay wallets activas disponibles.</span>
                   )}

@@ -62,6 +62,7 @@ export type PaymentRequestStatus =
   | 'PENDING'
   | 'SENT'
   | 'AWAITING_CONFIRMATION'
+  | 'PAID_UNDER_REVIEW'
   | 'APPROVED'
   | 'PAID'
   | 'REJECTED'
@@ -96,6 +97,8 @@ export type CryptoWallet = {
   updatedAt?: string;
 };
 
+export type PaymentResource = BankAccount | CryptoWallet;
+
 export type PaymentRequest = {
   id: number;
   caseId: number;
@@ -123,6 +126,11 @@ export type PaymentRequest = {
   updatedAt: string;
 };
 
+export type PaymentRequestWithRelations = PaymentRequest & {
+  bankAccount?: BankAccount | null;
+  cryptoWallet?: CryptoWallet | null;
+};
+
 export type PublicPaymentRequest = {
   id: number;
   case_id: number;
@@ -134,6 +142,7 @@ export type PublicPaymentRequest = {
   due_date?: string | null;
   notes_for_client?: string | null;
   qr_image_url?: string | null;
+  has_payment?: boolean;
   bank_account?: {
     id: number;
     label: string;
@@ -149,6 +158,7 @@ export type PublicPaymentRequest = {
     address: string;
     asset: string;
     currency?: string | null;
+    qrImageUrl?: string | null;
   } | null;
   created_at: string;
   updated_at: string;
@@ -183,9 +193,16 @@ export type Payment = {
   paidAt?: string | null;
   receiptDocumentId?: number | null;
   receiptDocument?: { id: number; filePath: string; title?: string; type?: string; createdAt?: string } | null;
+  receiptUrl?: string | null;
   notes?: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type PaymentWithRelations = Payment & {
+  bankAccount?: BankAccount | null;
+  cryptoWallet?: CryptoWallet | null;
+  paymentRequest?: PaymentRequestWithRelations | null;
 };
 
 export type PublicPayment = {
@@ -209,13 +226,17 @@ export type PublicPayment = {
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let message = 'Error en la solicitud';
+    let errors: Record<string, string> | undefined;
     try {
       const data = await res.json();
       message = data?.message || message;
+      errors = data?.errors;
     } catch (err) {
       // ignore
     }
-    throw new Error(message);
+    const error: any = new Error(message);
+    if (errors) error.errors = errors;
+    throw error;
   }
   return res.json();
 }
@@ -286,10 +307,10 @@ export async function updateAdminCase(token: string, id: number, payload: CasePa
 export async function getCasePayments(
   token: string,
   caseId: number
-): Promise<{ paymentRequests: PaymentRequest[]; payments: Payment[] }> {
+): Promise<{ paymentRequests: PaymentRequestWithRelations[]; payments: PaymentWithRelations[] }> {
   const [paymentRequests, payments] = await Promise.all([
-    listPaymentRequestsAdmin(token, caseId),
-    listPaymentsAdmin(token, caseId)
+    listPaymentRequestsAdmin(token, { caseId }),
+    listPaymentsAdmin(token, { caseId })
   ]);
 
   return { paymentRequests, payments };
@@ -363,7 +384,8 @@ export async function reviewPayment(
   token: string,
   id: number,
   action: 'APPROVE' | 'REJECT',
-  adminComment?: string
+  adminComment?: string,
+  rejectionReason?: string
 ): Promise<Payment> {
   const res = await fetch(`${API_BASE}/api/admin/payments/${id}/review`, {
     method: 'POST',
@@ -371,13 +393,23 @@ export async function reviewPayment(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`
     },
-    body: JSON.stringify({ action, adminComment })
+    body: JSON.stringify({ action, adminComment, rejectionReason })
   });
   return handleResponse(res);
 }
 
-export async function listPaymentRequestsAdmin(token: string, caseId?: number): Promise<PaymentRequest[]> {
-  const query = caseId ? `?caseId=${caseId}` : '';
+export async function listPaymentRequestsAdmin(
+  token: string,
+  opts?: { caseId?: number; status?: string | string[]; methodType?: string }
+): Promise<PaymentRequestWithRelations[]> {
+  const params = new URLSearchParams();
+  if (opts?.caseId) params.set('caseId', String(opts.caseId));
+  if (opts?.methodType) params.set('methodType', opts.methodType);
+  if (opts?.status) {
+    const statusValue = Array.isArray(opts.status) ? opts.status.join(',') : opts.status;
+    params.set('status', statusValue);
+  }
+  const query = params.toString() ? `?${params.toString()}` : '';
   const res = await fetch(`${API_BASE}/api/admin/payment-requests${query}`, {
     headers: { Authorization: `Bearer ${token}` },
     next: { revalidate: 0 }
@@ -385,8 +417,18 @@ export async function listPaymentRequestsAdmin(token: string, caseId?: number): 
   return handleResponse(res);
 }
 
-export async function listPaymentsAdmin(token: string, caseId?: number): Promise<Payment[]> {
-  const query = caseId ? `?caseId=${caseId}` : '';
+export async function listPaymentsAdmin(
+  token: string,
+  opts?: { caseId?: number; status?: string | string[]; methodType?: string }
+): Promise<PaymentWithRelations[]> {
+  const params = new URLSearchParams();
+  if (opts?.caseId) params.set('caseId', String(opts.caseId));
+  if (opts?.methodType) params.set('methodType', opts.methodType);
+  if (opts?.status) {
+    const statusValue = Array.isArray(opts.status) ? opts.status.join(',') : opts.status;
+    params.set('status', statusValue);
+  }
+  const query = params.toString() ? `?${params.toString()}` : '';
   const res = await fetch(`${API_BASE}/api/admin/payments${query}`, {
     headers: { Authorization: `Bearer ${token}` },
     next: { revalidate: 0 }
@@ -524,7 +566,7 @@ export async function deactivateCryptoWalletApi(token: string, id: number): Prom
 export async function confirmPaymentRequestPublic(
   requestId: number,
   form: FormData
-): Promise<{ paymentRequest: PublicPaymentRequest; payment: PublicPayment }> {
+): Promise<{ success: boolean; paymentRequest: PublicPaymentRequest; payment: PublicPayment }> {
   const res = await fetch(`${API_BASE}/api/public/payment-requests/${requestId}/confirm`, {
     method: 'POST',
     body: form

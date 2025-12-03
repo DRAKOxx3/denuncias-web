@@ -11,18 +11,26 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000'
 
 const statusColors: Record<string, string> = {
   PENDING: 'bg-amber-100 text-amber-800 border-amber-200',
-  SENT: 'bg-amber-100 text-amber-800 border-amber-200',
-  AWAITING_CONFIRMATION: 'bg-amber-100 text-amber-800 border-amber-200',
-  PAID: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  PAID_UNDER_REVIEW: 'bg-amber-100 text-amber-800 border-amber-200',
+  PENDING_REVIEW: 'bg-amber-100 text-amber-800 border-amber-200',
   APPROVED: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   REJECTED: 'bg-rose-100 text-rose-700 border-rose-200',
-  CANCELLED: 'bg-rose-100 text-rose-700 border-rose-200',
   EXPIRED: 'bg-slate-100 text-slate-700 border-slate-200'
+};
+
+const statusLabels: Record<string, string> = {
+  PENDING: 'Pendiente',
+  PAID_UNDER_REVIEW: 'En revisión',
+  PENDING_REVIEW: 'En revisión',
+  APPROVED: 'Aprobado',
+  REJECTED: 'Rechazado',
+  EXPIRED: 'Vencido'
 };
 
 function Badge({ status }: { status: string }) {
   const cls = statusColors[status] || 'bg-slate-100 text-slate-700 border-slate-200';
-  return <span className={`text-xs font-semibold border rounded-full px-3 py-1 ${cls}`}>{status}</span>;
+  const label = statusLabels[status] || status;
+  return <span className={`text-xs font-semibold border rounded-full px-3 py-1 ${cls}`}>{label}</span>;
 }
 
 function formatMethod(item: { method_type: string; method_code: string; bank_account?: any | null; crypto_wallet?: any | null }) {
@@ -35,7 +43,7 @@ function formatMethod(item: { method_type: string; method_code: string; bank_acc
   return item.method_type || 'Método';
 }
 
-function PaymentRequestCard({ request }: { request: PublicPaymentRequest }) {
+function PaymentRequestCard({ request, summary }: { request: PublicPaymentRequest; summary?: PublicPayment | null }) {
   return (
     <div className="rounded-lg border border-slate-200 p-4 bg-white shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -52,14 +60,26 @@ function PaymentRequestCard({ request }: { request: PublicPaymentRequest }) {
           Método: <span className="font-semibold">{formatMethod(request)}</span>
         </p>
         {request.bank_account && (
-          <p className="text-slate-600">
-            IBAN: <span className="font-medium">{request.bank_account.iban}</span>
-          </p>
+          <div className="text-slate-600 space-y-0.5">
+            <p>Banco: <span className="font-medium">{request.bank_account.bankName}</span></p>
+            <p>IBAN: <span className="font-medium">{request.bank_account.iban}</span></p>
+          </div>
         )}
         {request.crypto_wallet && (
-          <p className="text-slate-600">
-            Wallet: <span className="font-medium">{request.crypto_wallet.address}</span>
-          </p>
+          <div className="text-slate-600 space-y-0.5">
+            <p>Wallet: <span className="font-medium">{request.crypto_wallet.address}</span></p>
+            <p>Red: <span className="font-medium">{request.crypto_wallet.network}</span></p>
+            {request.crypto_wallet.qrImageUrl && (
+              <a
+                className="text-primary underline"
+                href={request.crypto_wallet.qrImageUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Ver QR
+              </a>
+            )}
+          </div>
         )}
         {request.due_date && (
           <p className="text-slate-600">Vencimiento: {new Date(request.due_date).toLocaleDateString()}</p>
@@ -68,6 +88,35 @@ function PaymentRequestCard({ request }: { request: PublicPaymentRequest }) {
           <p className="text-slate-600">
             QR: <a href={request.qr_image_url} className="text-primary underline" target="_blank" rel="noreferrer">Ver</a>
           </p>
+        )}
+        {summary && (
+          <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm text-slate-700 space-y-1">
+            <div className="flex items-center justify-between">
+              <p className="font-semibold text-primary">Comprobante enviado</p>
+              <Badge status={summary.status} />
+            </div>
+            <p>Pagador: {summary.payer_name || 'N/D'}</p>
+            {summary.payer_bank && <p>Banco: {summary.payer_bank}</p>}
+            {summary.tx_hash && <p>Hash/Tx: {summary.tx_hash}</p>}
+            {summary.paid_at && <p>Fecha de pago: {new Date(summary.paid_at).toLocaleString()}</p>}
+            {summary.receipt_path && (
+              <a
+                className="text-primary underline"
+                href={summary.receipt_path.startsWith('http') ? summary.receipt_path : `${API_BASE}${summary.receipt_path}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Ver comprobante
+              </a>
+            )}
+            <p className="text-xs text-amber-700 mt-2">
+              {summary.status === 'APPROVED'
+                ? 'Comprobante aprobado. Gracias por completar el pago.'
+                : summary.status === 'REJECTED'
+                ? 'El comprobante fue rechazado. Revisa los datos e inténtalo nuevamente.'
+                : 'Tu comprobante está en revisión. Te notificaremos cuando sea aprobado.'}
+            </p>
+          </div>
         )}
       </div>
     </div>
@@ -82,6 +131,7 @@ type Props = {
 
 export function CitizenPaymentsSection({ caseId, paymentRequests, payments }: Props) {
   const [requests, setRequests] = useState(paymentRequests);
+  const [paymentList, setPayments] = useState(payments);
   const [isSubmitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -95,14 +145,23 @@ export function CitizenPaymentsSection({ caseId, paymentRequests, payments }: Pr
   });
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
 
-  const approvedPayments = useMemo(() => payments.filter((p) => p.status === 'APPROVED'), [payments]);
-  const activeRequests = useMemo(
-    () => requests.filter((r) => ['PENDING', 'SENT', 'AWAITING_CONFIRMATION'].includes(r.status)),
-    [requests]
-  );
+  const approvedPayments = useMemo(() => paymentList.filter((p) => p.status === 'APPROVED'), [paymentList]);
+  const requestPaymentsMap = useMemo(() => {
+    const map = new Map<number, PublicPayment>();
+    paymentList.forEach((p) => {
+      if (p.payment_request_id) map.set(p.payment_request_id, p);
+    });
+    return map;
+  }, [paymentList]);
+
+  const activeRequests = useMemo(() => requests, [requests]);
 
   const handleSubmit = async () => {
     if (!selected) return;
+    if (!formState.payerName) {
+      setError('Indica el nombre del pagador.');
+      return;
+    }
     if (!receiptFile) {
       setError('Debes adjuntar el comprobante del pago.');
       return;
@@ -121,7 +180,16 @@ export function CitizenPaymentsSection({ caseId, paymentRequests, payments }: Pr
       form.append('receipt', receiptFile);
 
       const result = await confirmPaymentRequestPublic(selected.id, form);
-      setRequests((prev) => prev.map((r) => (r.id === selected.id ? { ...r, status: 'AWAITING_CONFIRMATION' } : r)));
+      setRequests((prev) =>
+        prev.map((r) =>
+          r.id === selected.id
+            ? { ...r, status: 'PAID_UNDER_REVIEW', has_payment: true }
+            : r
+        )
+      );
+      if (result.payment) {
+        setPayments((prev) => [...prev.filter((p) => p.id !== result.payment.id), result.payment]);
+      }
       setSuccess('Hemos recibido tu comprobante. Un administrador revisará tu pago.');
       setSelected(null);
       setFormState({ payerName: '', payerBank: '', bankReference: '', txHash: '', paidAt: '' });
@@ -146,22 +214,26 @@ export function CitizenPaymentsSection({ caseId, paymentRequests, payments }: Pr
         </div>
         {activeRequests.length === 0 && <p className="text-sm text-slate-500">No tienes solicitudes pendientes en este momento.</p>}
         <div className="grid gap-4 lg:grid-cols-2">
-          {activeRequests.map((request) => (
-            <div key={request.id} className="space-y-3">
-              <PaymentRequestCard request={request} />
-              {['PENDING', 'SENT'].includes(request.status) && (
-                <button
-                  className="btn btn-primary w-full"
-                  onClick={() => setSelected(request)}
-                >
-                  He realizado el pago
-                </button>
-              )}
-              {request.status === 'AWAITING_CONFIRMATION' && (
-                <p className="text-xs text-amber-700">Comprobante enviado. Esperando revisión del administrador.</p>
-              )}
-            </div>
-          ))}
+          {activeRequests.map((request) => {
+            const paymentSummary = requestPaymentsMap.get(request.id) || null;
+            const alreadySubmitted = Boolean(request.has_payment || paymentSummary);
+            return (
+              <div key={request.id} className="space-y-3">
+                <PaymentRequestCard request={request} summary={paymentSummary} />
+                {!alreadySubmitted && request.status === 'PENDING' && (
+                  <button
+                    className="btn btn-primary w-full"
+                    onClick={() => setSelected(request)}
+                  >
+                    He realizado el pago
+                  </button>
+                )}
+                {alreadySubmitted && request.status === 'PAID_UNDER_REVIEW' && (
+                  <p className="text-xs text-amber-700">Comprobante enviado. Esperando revisión del administrador.</p>
+                )}
+              </div>
+            );
+          })}
         </div>
       </section>
 
@@ -223,6 +295,7 @@ export function CitizenPaymentsSection({ caseId, paymentRequests, payments }: Pr
                   value={formState.payerName}
                   onChange={(e) => setFormState((s) => ({ ...s, payerName: e.target.value }))}
                   placeholder="Tu nombre completo"
+                  required
                 />
               </label>
               <div className="grid md:grid-cols-2 gap-3">
@@ -270,6 +343,7 @@ export function CitizenPaymentsSection({ caseId, paymentRequests, payments }: Pr
                   accept="image/*,application/pdf"
                   className="input"
                   onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
+                  required
                 />
               </label>
             </div>

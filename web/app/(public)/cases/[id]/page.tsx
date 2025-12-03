@@ -15,6 +15,24 @@ const getBadgeClass = (status: string) => {
   return match ? match[1] : 'bg-slate-100 text-slate-700 border-slate-200';
 };
 
+const timelineMeta: Record<string, { label: string; icon?: string }> = {
+  PAYMENT_REQUEST_CREATED: { label: 'Solicitud de pago creada', icon: '💳' },
+  PAYMENT_CONFIRMATION_SUBMITTED: { label: 'Comprobante enviado', icon: '🧾' },
+  PAYMENT_APPROVED: { label: 'Pago aprobado', icon: '✅' },
+  PAYMENT_REJECTED: { label: 'Pago rechazado', icon: '❌' }
+};
+
+function renderTimelineLabel(eventType: string) {
+  const meta = timelineMeta[eventType];
+  if (!meta) return eventType;
+  return (
+    <span className="inline-flex items-center gap-2">
+      {meta.icon && <span>{meta.icon}</span>}
+      <span>{meta.label}</span>
+    </span>
+  );
+}
+
 async function fetchCase(trackingCode: string): Promise<CaseSearchResponse | null> {
   try {
     return await searchCase({ trackingCode });
@@ -67,7 +85,7 @@ export default async function CaseDetailPage({ params }: { params: { id: string 
               <li key={event.id} className="rounded-lg border border-slate-200 p-3 bg-slate-50/60 flex items-start gap-3">
                 <span className="text-xs text-slate-500 w-28">{new Date(event.fecha_evento).toLocaleDateString()}</span>
                 <div className="space-y-1">
-                  <p className="font-semibold text-primary">{event.tipo_evento}</p>
+                  <p className="font-semibold text-primary">{renderTimelineLabel(event.tipo_evento)}</p>
                   <p className="text-slate-700 leading-relaxed">{event.descripcion}</p>
                 </div>
               </li>

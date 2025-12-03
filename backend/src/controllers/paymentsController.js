@@ -1,12 +1,138 @@
 import { Prisma } from '@prisma/client';
 import path from 'path';
 import { prisma } from '../lib/prisma.js';
+import { TIMELINE_EVENT_TYPES } from '../constants/timelineTypes.js';
+
+const FIAT_CURRENCIES = ['EUR', 'USD', 'GBP', 'MXN', 'COP', 'CLP', 'ARS'];
+const CRYPTO_CURRENCIES = ['BTC', 'ETH', 'USDT', 'USDC', 'DAI', 'SOL'];
 
 const mapAdminCaseSummary = (item) => ({
   id: item.id,
   caseNumber: item.caseNumber,
   citizenName: item.citizenName
 });
+
+const buildReceiptUrl = (receiptDocument) => {
+  if (!receiptDocument?.filePath) return null;
+  const publicBase = process.env.PUBLIC_BASE_URL || '';
+  return `${publicBase}${receiptDocument.filePath}`;
+};
+
+const formatMethodLabel = (methodType, methodCode, bankLabel, walletLabel) => {
+  if (methodType === 'BANK_TRANSFER') {
+    const method = methodCode ? `transferencia ${methodCode}` : 'transferencia bancaria';
+    return bankLabel ? `${method} (${bankLabel})` : method;
+  }
+  const method = methodCode ? `cripto ${methodCode}` : 'pago cripto';
+  return walletLabel ? `${method} (${walletLabel})` : method;
+};
+
+const recordTimelineEvent = async (caseId, type, description) => {
+  try {
+    await prisma.timelineEvent.create({
+      data: {
+        caseId,
+        type,
+        description,
+        date: new Date()
+      }
+    });
+  } catch (err) {
+    console.error('No se pudo registrar evento de timeline', err);
+  }
+};
+
+const respondValidation = (res, errors, fallbackMessage = 'Errores de validación') => {
+  const hasErrors = errors && Object.keys(errors).length > 0;
+  if (hasErrors) {
+    return res.status(400).json({ message: fallbackMessage, errors });
+  }
+  return null;
+};
+
+const normalizeCurrency = (value) => (typeof value === 'string' ? value.trim().toUpperCase() : value);
+
+const validatePaymentRequestInput = async ({
+  amount,
+  currency,
+  methodType,
+  methodCode,
+  bankAccountId,
+  cryptoWalletId,
+  dueDate
+}) => {
+  const errors = {};
+  const parsedAmount = amount != null ? Number(amount) : null;
+  const normalizedCurrency = normalizeCurrency(currency);
+
+  if (parsedAmount == null || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
+    errors.amount = 'El importe debe ser mayor a 0.';
+  }
+
+  if (!normalizedCurrency) {
+    errors.currency = 'La moneda es obligatoria.';
+  }
+
+  if (!methodType) {
+    errors.methodType = 'Selecciona un tipo de método.';
+  }
+
+  if (!methodCode) {
+    errors.methodCode = 'Ingresa el código del método (ej: SEPA, BTC, USDT_TRC20).';
+  }
+
+  if (dueDate) {
+    const parsed = new Date(dueDate);
+    if (Number.isNaN(parsed.getTime())) {
+      errors.dueDate = 'La fecha de vencimiento es inválida.';
+    } else if (parsed < new Date()) {
+      errors.dueDate = 'La fecha de vencimiento no puede estar en el pasado.';
+    }
+  }
+
+  const method = methodType;
+  if (method === 'BANK_TRANSFER') {
+    if (!bankAccountId) {
+      errors.bankAccountId = 'Debes seleccionar una cuenta bancaria activa.';
+    }
+    if (normalizedCurrency && !FIAT_CURRENCIES.includes(normalizedCurrency)) {
+      errors.currency = 'Las transferencias solo permiten monedas fiat (ej. EUR).';
+    }
+  }
+
+  if (method === 'CRYPTO') {
+    if (!cryptoWalletId) {
+      errors.cryptoWalletId = 'Debes seleccionar una wallet activa.';
+    }
+    if (normalizedCurrency && FIAT_CURRENCIES.includes(normalizedCurrency)) {
+      errors.currency = 'Para pagos cripto usa el ticker del activo (ej. USDT, BTC).';
+    }
+    if (normalizedCurrency && !CRYPTO_CURRENCIES.includes(normalizedCurrency)) {
+      errors.currency = errors.currency || 'Moneda cripto no reconocida (ej. USDT, BTC, ETH).';
+    }
+  }
+
+  // Validate existence/availability of accounts or wallets
+  if (bankAccountId) {
+    const bankAccount = await prisma.bankAccount.findFirst({ where: { id: Number(bankAccountId), isActive: true } });
+    if (!bankAccount) {
+      errors.bankAccountId = 'La cuenta bancaria seleccionada no está activa.';
+    }
+  }
+
+  if (cryptoWalletId) {
+    const wallet = await prisma.cryptoWallet.findFirst({ where: { id: Number(cryptoWalletId), isActive: true } });
+    if (!wallet) {
+      errors.cryptoWalletId = 'La wallet seleccionada no está activa.';
+    }
+  }
+
+  return {
+    errors,
+    parsedAmount,
+    normalizedCurrency
+  };
+};
 
 export const getCasePayments = async (req, res) => {
   const caseId = Number(req.params.caseId);
@@ -36,7 +162,12 @@ export const getCasePayments = async (req, res) => {
       })
     ]);
 
-    return res.json({ paymentRequests, payments });
+    const paymentsWithUrl = payments.map((payment) => ({
+      ...payment,
+      receiptUrl: buildReceiptUrl(payment.receiptDocument)
+    }));
+
+    return res.json({ paymentRequests, payments: paymentsWithUrl });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Error al obtener pagos.' });
@@ -45,14 +176,29 @@ export const getCasePayments = async (req, res) => {
 
 export const listPaymentRequests = async (req, res) => {
   const caseId = req.query.caseId ? Number(req.query.caseId) : undefined;
+  const statusParam = req.query.status;
+  const methodType = req.query.methodType;
+
+  const statuses = statusParam
+    ? String(statusParam)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : undefined;
 
   try {
     const paymentRequests = await prisma.paymentRequest.findMany({
-      where: caseId ? { caseId } : {},
+      where: {
+        ...(caseId ? { caseId } : {}),
+        ...(statuses?.length ? { status: { in: statuses } } : {}),
+        ...(methodType ? { methodType } : {})
+      },
       include: {
         bankAccount: true,
         cryptoWallet: true,
-        case: true
+        case: {
+          select: { id: true, caseNumber: true, citizenName: true }
+        }
       },
       orderBy: { createdAt: 'desc' }
     });
@@ -66,23 +212,52 @@ export const listPaymentRequests = async (req, res) => {
 
 export const listPayments = async (req, res) => {
   const caseId = req.query.caseId ? Number(req.query.caseId) : undefined;
+  const statusParam = req.query.status;
+  const methodType = req.query.methodType;
+
+  const statuses = statusParam
+    ? String(statusParam)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : undefined;
 
   try {
     const payments = await prisma.payment.findMany({
-      where: caseId ? { caseId } : {},
+      where: {
+        ...(caseId ? { caseId } : {}),
+        ...(statuses?.length ? { status: { in: statuses } } : {}),
+        ...(methodType ? { methodType } : {})
+      },
       include: {
         bankAccount: true,
         cryptoWallet: true,
         paymentRequest: {
-          include: { case: true }
+          select: {
+            id: true,
+            amount: true,
+            currency: true,
+            methodType: true,
+            methodCode: true,
+            dueDate: true,
+            status: true,
+            caseId: true
+          }
         },
-        case: true,
+        case: {
+          select: { id: true, caseNumber: true, citizenName: true }
+        },
         receiptDocument: true
       },
       orderBy: { createdAt: 'desc' }
     });
 
-    return res.json(payments);
+    const withReceiptUrls = payments.map((payment) => ({
+      ...payment,
+      receiptUrl: buildReceiptUrl(payment.receiptDocument)
+    }));
+
+    return res.json(withReceiptUrls);
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Error al listar pagos.' });
@@ -104,27 +279,27 @@ export const createPaymentRequest = async (req, res) => {
     internalNotes
   } = req.body || {};
 
-  if (!amount || !currency || !methodType || !methodCode) {
-    return res.status(400).json({ message: 'amount, currency, methodType y methodCode son obligatorios.' });
-  }
-
   try {
     const existingCase = await prisma.case.findUnique({ where: { id: caseId } });
     if (!existingCase) return res.status(404).json({ message: 'Caso no encontrado' });
 
-    if (methodType === 'BANK_TRANSFER' && !bankAccountId) {
-      return res.status(400).json({ message: 'Debes seleccionar una cuenta bancaria activa para transferencias.' });
-    }
+    const validation = await validatePaymentRequestInput({
+      amount,
+      currency,
+      methodType,
+      methodCode,
+      bankAccountId,
+      cryptoWalletId,
+      dueDate
+    });
 
-    if (methodType === 'CRYPTO' && !cryptoWalletId) {
-      return res.status(400).json({ message: 'Debes seleccionar una wallet activa para pagos cripto.' });
-    }
+    if (respondValidation(res, validation.errors)) return;
 
     const created = await prisma.paymentRequest.create({
       data: {
         caseId,
-        amount: new Prisma.Decimal(amount),
-        currency,
+        amount: new Prisma.Decimal(validation.parsedAmount),
+        currency: validation.normalizedCurrency,
         methodType,
         methodCode,
         bankAccountId: bankAccountId ? Number(bankAccountId) : null,
@@ -139,6 +314,18 @@ export const createPaymentRequest = async (req, res) => {
         cryptoWallet: true
       }
     });
+
+    const methodLabel = formatMethodLabel(
+      created.methodType,
+      created.methodCode,
+      created.bankAccount?.label,
+      created.cryptoWallet?.label
+    );
+    await recordTimelineEvent(
+      caseId,
+      TIMELINE_EVENT_TYPES.PAYMENT_REQUEST_CREATED,
+      `Solicitud de pago creada por ${created.amount} ${created.currency} vía ${methodLabel}.`
+    );
 
     return res.status(201).json(created);
   } catch (error) {
@@ -164,12 +351,24 @@ export const updatePaymentRequest = async (req, res) => {
     const existing = await prisma.paymentRequest.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ message: 'Solicitud de pago no encontrada' });
 
+    const validation = await validatePaymentRequestInput({
+      amount: amount != null ? amount : existing.amount,
+      currency: currency || existing.currency,
+      methodType: existing.methodType,
+      methodCode: existing.methodCode,
+      bankAccountId: existing.bankAccountId,
+      cryptoWalletId: existing.cryptoWalletId,
+      dueDate: dueDate !== undefined ? dueDate : existing.dueDate
+    });
+
+    if (respondValidation(res, validation.errors)) return;
+
     const updated = await prisma.paymentRequest.update({
       where: { id },
       data: {
         status: status || existing.status,
-        amount: amount != null ? new Prisma.Decimal(amount) : existing.amount,
-        currency: currency || existing.currency,
+        amount: amount != null ? new Prisma.Decimal(validation.parsedAmount) : existing.amount,
+        currency: validation.normalizedCurrency || existing.currency,
         dueDate: dueDate !== undefined ? (dueDate ? new Date(dueDate) : null) : existing.dueDate,
         qrImageUrl: qrImageUrl !== undefined ? qrImageUrl : existing.qrImageUrl,
         notesForClient: notesForClient !== undefined ? notesForClient : existing.notesForClient,
@@ -208,49 +407,45 @@ export const createPayment = async (req, res) => {
     notes
   } = req.body || {};
 
-  if (!amount || !currency || !methodType || !methodCode) {
-    return res.status(400).json({ message: 'amount, currency, methodType y methodCode son obligatorios.' });
-  }
-
   try {
     const existingCase = await prisma.case.findUnique({ where: { id: caseId } });
     if (!existingCase) return res.status(404).json({ message: 'Caso no encontrado' });
 
+    let request = null;
     if (paymentRequestId) {
-      const request = await prisma.paymentRequest.findUnique({ where: { id: Number(paymentRequestId) } });
+      request = await prisma.paymentRequest.findUnique({ where: { id: Number(paymentRequestId) } });
       if (!request || request.caseId !== caseId) {
         return res.status(400).json({ message: 'La solicitud de pago no pertenece al caso indicado.' });
       }
     }
 
-    if (methodType === 'BANK_TRANSFER' && !bankAccountId) {
-      return res.status(400).json({ message: 'Debes seleccionar una cuenta bancaria activa para transferencias.' });
-    }
+    const effectiveMethodType = request?.methodType || methodType;
+    const effectiveMethodCode = request?.methodCode || methodCode;
+    const effectiveCurrency = currency || request?.currency;
+    const effectiveBankAccountId = bankAccountId || request?.bankAccountId;
+    const effectiveWalletId = cryptoWalletId || request?.cryptoWalletId;
 
-    if (methodType === 'CRYPTO' && !cryptoWalletId) {
-      return res.status(400).json({ message: 'Debes seleccionar una wallet activa para pagos cripto.' });
-    }
+    const validation = await validatePaymentRequestInput({
+      amount,
+      currency: effectiveCurrency,
+      methodType: effectiveMethodType,
+      methodCode: effectiveMethodCode,
+      bankAccountId: effectiveBankAccountId,
+      cryptoWalletId: effectiveWalletId
+    });
 
-    if (bankAccountId) {
-      const bankAccount = await prisma.bankAccount.findFirst({ where: { id: Number(bankAccountId), isActive: true } });
-      if (!bankAccount) return res.status(400).json({ message: 'La cuenta bancaria seleccionada no está disponible.' });
-    }
-
-    if (cryptoWalletId) {
-      const wallet = await prisma.cryptoWallet.findFirst({ where: { id: Number(cryptoWalletId), isActive: true } });
-      if (!wallet) return res.status(400).json({ message: 'La wallet seleccionada no está disponible.' });
-    }
+    if (respondValidation(res, validation.errors)) return;
 
     const created = await prisma.payment.create({
       data: {
         caseId,
         paymentRequestId: paymentRequestId ? Number(paymentRequestId) : null,
-        amount: new Prisma.Decimal(amount),
-        currency,
-        methodType,
-        methodCode,
-        bankAccountId: bankAccountId ? Number(bankAccountId) : null,
-        cryptoWalletId: cryptoWalletId ? Number(cryptoWalletId) : null,
+        amount: new Prisma.Decimal(validation.parsedAmount),
+        currency: validation.normalizedCurrency,
+        methodType: effectiveMethodType,
+        methodCode: effectiveMethodCode,
+        bankAccountId: effectiveBankAccountId ? Number(effectiveBankAccountId) : null,
+        cryptoWalletId: effectiveWalletId ? Number(effectiveWalletId) : null,
         status,
         payerName: payerName || null,
         payerBank: payerBank || null,
@@ -270,7 +465,7 @@ export const createPayment = async (req, res) => {
     if (paymentRequestId && status === 'APPROVED') {
       await prisma.paymentRequest.update({
         where: { id: Number(paymentRequestId) },
-        data: { status: 'PAID' }
+        data: { status: 'APPROVED' }
       });
     }
 
@@ -319,7 +514,7 @@ export const updatePayment = async (req, res) => {
     if (existing.paymentRequestId && status === 'APPROVED') {
       await prisma.paymentRequest.update({
         where: { id: existing.paymentRequestId },
-        data: { status: 'PAID' }
+        data: { status: 'APPROVED' }
       });
     }
 
@@ -537,14 +732,15 @@ export const confirmPaymentRequestPublic = async (req, res) => {
   const { payerName, payerBank, bankReference, txHash, paidAt, caseId } = req.body || {};
   const file = req.file;
 
-  if (!payerName || !file || !caseId) {
-    return res.status(400).json({ message: 'Nombre del pagador, caso y comprobante son obligatorios.' });
-  }
+  const errors = {};
+  if (!payerName) errors.payerName = 'Indica el nombre del pagador.';
+  if (!file) errors.receipt = 'Debes adjuntar el comprobante del pago.';
+  if (!caseId) errors.caseId = 'Falta el identificador del caso.';
 
   try {
     const paymentRequest = await prisma.paymentRequest.findUnique({
       where: { id: requestId },
-      include: { bankAccount: true, cryptoWallet: true }
+      include: { bankAccount: true, cryptoWallet: true, payments: true }
     });
 
     if (!paymentRequest) {
@@ -555,9 +751,32 @@ export const confirmPaymentRequestPublic = async (req, res) => {
       return res.status(400).json({ message: 'La solicitud de pago no corresponde a este caso.' });
     }
 
-    if (!['PENDING', 'SENT', 'AWAITING_CONFIRMATION'].includes(paymentRequest.status)) {
-      return res.status(400).json({ message: 'La solicitud no admite confirmación en su estado actual.' });
+    if (!['PENDING', 'SENT', 'PAID_UNDER_REVIEW'].includes(paymentRequest.status)) {
+      return res.status(400).json({
+        message: 'La solicitud no admite confirmación en su estado actual.',
+        errors: { status: 'Esta solicitud ya fue aprobada/rechazada o está expirada.' }
+      });
     }
+
+    const existingPayment = await prisma.payment.findFirst({ where: { paymentRequestId: paymentRequest.id } });
+    if (existingPayment) {
+      return res.status(400).json({
+        message: 'Ya registraste un comprobante para esta solicitud.',
+        errors: { receipt: 'Esta solicitud ya tiene un comprobante cargado.' }
+      });
+    }
+
+    if (paymentRequest.methodType === 'BANK_TRANSFER') {
+      if (!payerBank && !bankReference) {
+        errors.bankReference = 'Indica el banco emisor o la referencia bancaria.';
+      }
+    }
+
+    if (paymentRequest.methodType === 'CRYPTO' && !txHash) {
+      errors.txHash = 'Incluye el hash de la transacción cripto.';
+    }
+
+    if (respondValidation(res, errors)) return;
 
     const relativePath = `/uploads/${path.basename(file.path)}`;
     const receiptDocument = await prisma.document.create({
@@ -598,10 +817,22 @@ export const confirmPaymentRequestPublic = async (req, res) => {
 
     const updatedRequest = await prisma.paymentRequest.update({
       where: { id: paymentRequest.id },
-      data: { status: 'AWAITING_CONFIRMATION' }
+      data: { status: 'PAID_UNDER_REVIEW' }
     });
 
-    return res.status(201).json({ paymentRequest: updatedRequest, payment: createdPayment });
+    const methodLabel = formatMethodLabel(
+      paymentRequest.methodType,
+      paymentRequest.methodCode,
+      paymentRequest.bankAccount?.label,
+      paymentRequest.cryptoWallet?.label
+    );
+    await recordTimelineEvent(
+      paymentRequest.caseId,
+      TIMELINE_EVENT_TYPES.PAYMENT_CONFIRMATION_SUBMITTED,
+      `El ciudadano envió comprobante por ${paymentRequest.amount} ${paymentRequest.currency} vía ${methodLabel}.`
+    );
+
+    return res.status(201).json({ success: true, paymentRequest: updatedRequest, payment: createdPayment });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Error al registrar el comprobante de pago.' });
@@ -610,7 +841,7 @@ export const confirmPaymentRequestPublic = async (req, res) => {
 
 export const reviewPayment = async (req, res) => {
   const id = Number(req.params.id);
-  const { action, adminComment } = req.body || {};
+  const { action, adminComment, rejectionReason } = req.body || {};
 
   if (!['APPROVE', 'REJECT'].includes(action)) {
     return res.status(400).json({ message: 'Acción inválida para revisión.' });
@@ -627,18 +858,36 @@ export const reviewPayment = async (req, res) => {
     const nextStatus = action === 'APPROVE' ? 'APPROVED' : 'REJECTED';
     const nextRequestStatus = action === 'APPROVE' ? 'PAID' : 'PENDING';
 
+    const noteSegments = [];
+    if (payment.notes) noteSegments.push(payment.notes);
+    if (adminComment) noteSegments.push(`Nota admin: ${adminComment}`);
+    if (action === 'REJECT' && rejectionReason) noteSegments.push(`Motivo rechazo: ${rejectionReason}`);
+
     const updatedPayment = await prisma.payment.update({
       where: { id },
       data: {
         status: nextStatus,
-        notes: adminComment ? `${payment.notes ? `${payment.notes} | ` : ''}${adminComment}` : payment.notes
+        notes: noteSegments.length ? noteSegments.join(' | ') : payment.notes
       },
       include: {
         bankAccount: true,
         cryptoWallet: true,
-        paymentRequest: true,
+        paymentRequest: {
+          select: {
+            id: true,
+            amount: true,
+            currency: true,
+            methodType: true,
+            methodCode: true,
+            dueDate: true,
+            status: true,
+            caseId: true
+          }
+        },
         receiptDocument: true,
-        case: true
+        case: {
+          select: { id: true, caseNumber: true, citizenName: true }
+        }
       }
     });
 
@@ -646,7 +895,20 @@ export const reviewPayment = async (req, res) => {
       await prisma.paymentRequest.update({ where: { id: payment.paymentRequestId }, data: { status: nextRequestStatus } });
     }
 
-    return res.json(updatedPayment);
+    const methodLabel = formatMethodLabel(
+      updatedPayment.methodType,
+      updatedPayment.methodCode,
+      updatedPayment.bankAccount?.label,
+      updatedPayment.cryptoWallet?.label
+    );
+    const adminNote = adminComment ? ` Nota del admin: ${adminComment}.` : '';
+    await recordTimelineEvent(
+      updatedPayment.caseId,
+      action === 'APPROVE' ? TIMELINE_EVENT_TYPES.PAYMENT_APPROVED : TIMELINE_EVENT_TYPES.PAYMENT_REJECTED,
+      `${action === 'APPROVE' ? 'Pago aprobado' : 'Pago rechazado'} (${updatedPayment.amount} ${updatedPayment.currency} por ${methodLabel}).${adminNote}`
+    );
+
+    return res.json({ ...updatedPayment, receiptUrl: buildReceiptUrl(updatedPayment.receiptDocument) });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Error al revisar el pago.' });
