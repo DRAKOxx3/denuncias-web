@@ -1,0 +1,272 @@
+import { Prisma } from '@prisma/client';
+import { prisma } from '../lib/prisma.js';
+
+const toNumber = (value) => (value instanceof Prisma.Decimal ? value.toNumber() : Number(value));
+
+const mapCase = (record) => ({
+  id: record.id,
+  numero_expediente: record.caseNumber,
+  codigo_seguimiento: record.trackingCode,
+  denunciante_nombre: record.citizenName,
+  denunciante_documento: record.citizenIdNumber,
+  estado: record.status,
+  fecha_inicio: record.createdAt.toISOString(),
+  dependencia: record.assignedDepartment,
+  creado_por_admin_id: record.createdByAdminId,
+  actualizado_en: record.updatedAt.toISOString()
+});
+
+const mapTimelineEvent = (event) => ({
+  id: event.id,
+  case_id: event.caseId,
+  fecha_evento: event.date.toISOString(),
+  tipo_evento: event.type,
+  descripcion: event.description,
+  document_id: null,
+  visible_al_ciudadano: true,
+  creado_en: event.createdAt.toISOString()
+});
+
+const mapDocument = (doc) => ({
+  id: doc.id,
+  case_id: doc.caseId,
+  titulo: doc.title,
+  tipo: doc.type,
+  path_archivo: doc.filePath,
+  visible_al_ciudadano: doc.isPublic,
+  creado_en: doc.createdAt.toISOString()
+});
+
+const maskIban = (value) => {
+  if (!value) return '';
+  const clean = value.replace(/\s+/g, '');
+  if (clean.length <= 4) return clean;
+  const visible = clean.slice(-4);
+  return `•••• ${visible}`;
+};
+
+const mapPaymentRequestPublic = (request) => {
+  const sortedPayments = [...(request.payments || [])].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+  const latestPayment = sortedPayments[0];
+  const hasReceipt = Boolean(latestPayment);
+  const normalizedStatus = (() => {
+    if (latestPayment?.status === 'APPROVED') return 'APPROVED';
+    if (latestPayment?.status === 'REJECTED') return 'REJECTED';
+    if (latestPayment?.status === 'PENDING_REVIEW') return 'PAID_UNDER_REVIEW';
+    if (['AWAITING_CONFIRMATION', 'PAID_UNDER_REVIEW'].includes(request.status)) return 'PAID_UNDER_REVIEW';
+    if (['APPROVED', 'PAID'].includes(request.status)) return 'APPROVED';
+    if (['REJECTED', 'CANCELLED'].includes(request.status)) return 'REJECTED';
+    if (['EXPIRED'].includes(request.status)) return 'EXPIRED';
+    return 'PENDING';
+  })();
+
+  return {
+    id: request.id,
+    case_id: request.caseId,
+    amount: toNumber(request.amount),
+    currency: request.currency,
+    method_type: request.methodType,
+    method_code: request.methodCode,
+    status: normalizedStatus,
+    due_date: request.dueDate ? request.dueDate.toISOString() : null,
+    created_at: request.createdAt.toISOString(),
+    notes_for_client: request.notesForClient,
+    qr_image_url: request.qrImageUrl,
+    has_payment: hasReceipt,
+    bank_account: request.bankAccount
+      ? {
+          id: request.bankAccount.id,
+          label: request.bankAccount.label,
+          bankName: request.bankAccount.bankName,
+          iban: maskIban(request.bankAccount.iban),
+          currency: request.bankAccount.currency,
+          bic: request.bankAccount.bic
+        }
+      : null,
+    crypto_wallet: request.cryptoWallet
+      ? {
+          id: request.cryptoWallet.id,
+          label: request.cryptoWallet.label,
+          network: request.cryptoWallet.network,
+          address: request.cryptoWallet.address,
+          asset: request.cryptoWallet.asset,
+          currency: request.cryptoWallet.currency,
+          qrImageUrl: request.qrImageUrl || null
+        }
+      : null,
+    created_at: request.createdAt.toISOString(),
+    updated_at: request.updatedAt.toISOString(),
+    payment_status: latestPayment?.status || null,
+    payment_summary: latestPayment
+      ? {
+          status: latestPayment.status,
+          payer_name: latestPayment.payerName,
+          payer_bank: latestPayment.payerBank,
+          bank_reference: latestPayment.bankReference || latestPayment.reference,
+          tx_hash: latestPayment.txHash,
+          paid_at: latestPayment.paidAt ? latestPayment.paidAt.toISOString() : null,
+          receipt_path: latestPayment.receiptDocument?.filePath || null,
+          rejection_reason: latestPayment.rejectionReason || null
+        }
+      : null
+  };
+};
+
+const mapPayment = (payment) => ({
+  id: payment.id,
+  case_id: payment.caseId,
+  amount: toNumber(payment.amount),
+  currency: payment.currency,
+  status: payment.status,
+  method_type: payment.methodType,
+  method_code: payment.methodCode,
+  payer_name: payment.payerName,
+  payer_bank: payment.payerBank,
+  bank_reference: payment.bankReference || payment.reference,
+  tx_hash: payment.txHash,
+  paid_at: payment.paidAt ? payment.paidAt.toISOString() : null,
+  created_at: payment.createdAt.toISOString(),
+  payment_request_id: payment.paymentRequestId,
+  receipt_path: payment.receiptDocument?.filePath || null,
+  rejection_reason: payment.rejectionReason || null
+});
+
+export const searchCase = async (req, res) => {
+  const { numero_expediente, documento_identidad, codigo_seguimiento } = req.body || {};
+  if (!codigo_seguimiento && (!numero_expediente || !documento_identidad)) {
+    return res.status(400).json({ message: 'Envía código de seguimiento o número de expediente y documento.' });
+  }
+
+  try {
+    const foundCase = codigo_seguimiento
+      ? await prisma.case.findUnique({ where: { trackingCode: codigo_seguimiento } })
+      : await prisma.case.findFirst({
+          where: {
+            caseNumber: numero_expediente,
+            citizenIdNumber: documento_identidad
+          }
+        });
+
+    if (!foundCase) {
+      return res.status(404).json({ message: 'No se encontró un expediente con esos datos.' });
+    }
+
+    const [timeline, documents, payments, paymentRequests] = await Promise.all([
+      prisma.timelineEvent.findMany({ where: { caseId: foundCase.id }, orderBy: { date: 'asc' } }),
+      prisma.document.findMany({ where: { caseId: foundCase.id, isPublic: true } }),
+      prisma.payment.findMany({ where: { caseId: foundCase.id }, include: { receiptDocument: true } }),
+      prisma.paymentRequest.findMany({
+        where: { caseId: foundCase.id },
+        include: { bankAccount: true, cryptoWallet: true, payments: { include: { receiptDocument: true } } },
+        orderBy: { createdAt: 'desc' }
+      })
+    ]);
+
+    return res.json({
+      case: mapCase(foundCase),
+      timeline: timeline.map(mapTimelineEvent),
+      documents: documents.map(mapDocument),
+      payments: payments.map(mapPayment),
+      paymentRequests: paymentRequests.map(mapPaymentRequestPublic)
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al buscar el caso.' });
+  }
+};
+
+export const listCases = async (_req, res) => {
+  try {
+    const cases = await prisma.case.findMany({ orderBy: { createdAt: 'desc' } });
+    return res.json(cases.map(mapCase));
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al listar casos.' });
+  }
+};
+
+export const createCase = async (req, res) => {
+  const {
+    numero_expediente,
+    codigo_seguimiento,
+    denunciante_nombre,
+    denunciante_documento,
+    estado = 'En revisión',
+    dependencia,
+    creado_por_admin_id
+  } = req.body || {};
+
+  if (!numero_expediente || !denunciante_nombre || !denunciante_documento || !dependencia) {
+    return res.status(400).json({ message: 'Faltan campos obligatorios para crear el caso.' });
+  }
+
+  try {
+    const existing = await prisma.case.findUnique({ where: { caseNumber: numero_expediente } });
+    if (existing) {
+      return res.status(409).json({ message: 'Ya existe un caso con ese número de expediente.' });
+    }
+
+    const created = await prisma.case.create({
+      data: {
+        caseNumber: numero_expediente,
+        trackingCode: codigo_seguimiento || `SEG-${Math.random().toString(36).slice(2, 8)}`,
+        citizenName: denunciante_nombre,
+        citizenIdNumber: denunciante_documento,
+        status: estado,
+        assignedDepartment: dependencia,
+        createdByAdminId: creado_por_admin_id || req.user?.id || null
+      }
+    });
+
+    return res.status(201).json(mapCase(created));
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al crear el caso.' });
+  }
+};
+
+export const updateCase = async (req, res) => {
+  const caseId = Number(req.params.id);
+  const updates = req.body || {};
+
+  try {
+    const existing = await prisma.case.findUnique({ where: { id: caseId } });
+    if (!existing) {
+      return res.status(404).json({ message: 'Caso no encontrado' });
+    }
+
+    const data = {};
+    if (updates.numero_expediente) data.caseNumber = updates.numero_expediente;
+    if (updates.codigo_seguimiento) data.trackingCode = updates.codigo_seguimiento;
+    if (updates.denunciante_nombre) data.citizenName = updates.denunciante_nombre;
+    if (updates.denunciante_documento) data.citizenIdNumber = updates.denunciante_documento;
+    if (updates.estado) data.status = updates.estado;
+    if (updates.dependencia) data.assignedDepartment = updates.dependencia;
+    if (updates.creado_por_admin_id !== undefined) data.createdByAdminId = updates.creado_por_admin_id;
+
+    const updated = await prisma.case.update({ where: { id: caseId }, data });
+    return res.json(mapCase(updated));
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al actualizar el caso.' });
+  }
+};
+
+export const deleteCase = async (req, res) => {
+  const caseId = Number(req.params.id);
+
+  try {
+    const existing = await prisma.case.findUnique({ where: { id: caseId } });
+    if (!existing) {
+      return res.status(404).json({ message: 'Caso no encontrado' });
+    }
+
+    await prisma.case.delete({ where: { id: caseId } });
+    return res.status(204).send();
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al eliminar el caso.' });
+  }
+};
